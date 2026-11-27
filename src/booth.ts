@@ -172,34 +172,38 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
 
   switch (type) {
     // Each type gets its own zone of the stall, so a default layout never
-    // parks one item inside another: staff kit down the open flank, display
-    // kit down the walled flank, back wall for storage and self-service.
+    // parks one item inside another. The screen owns the 3 m side wall, the
+    // models face the aisle from the open corner, and the helpdesk sits on
+    // the screen side at the open end where visitors reach it first.
     case 'counter':
-      // Open flank, forward: it faces the aisle rather than backing onto the
-      // wall, where it used to stand directly in front of anything displayed.
-      return { x: clampX(-wallSide * (W / 2 - 0.75)), z: clampZ(D / 2 - 0.95 - i * 1.1), rotY: 0 };
-    case 'cabinet':
-      return { x: clampX(-wallSide * (W / 2 - 0.55 - i * 1.0)), z: clampZ(-D / 2 + 0.3), rotY: 0 };
-    case 'table':
-      return { x: clampX(-wallSide * (W * 0.09)), z: clampZ(D / 2 - 1.0 - i * 1.7), rotY: 0 };
-    case 'steps':
-      // Off the back wall on the walled half, running front to back so the
-      // staircase is read along its length and every caption faces the aisle.
-      // Kept clear of the side wall, which the screen now occupies.
       return {
-        x: clampX(wallSide * (W * 0.25 + i * 1.4)),
-        z: clampZ(-D / 2 + 1.0),
+        x: clampX(wallSide * (W / 2 - 0.78)),
+        z: clampZ(D / 2 - 0.8 - i * 1.1),
+        rotY: -wallSide * 0.45,          // angled out toward the aisle
+      };
+    case 'steps':
+      // The open corner: the staircase runs front to back along the open
+      // flank, so all three captions and models are read from the aisle
+      // rather than from inside the stall.
+      return {
+        x: clampX(-wallSide * (W / 2 - 0.78)),
+        z: clampZ(D / 2 - 1.2 - i * 1.9),
         rotY: 0,
       };
+    case 'table':
+      return { x: clampX(-wallSide * (W * 0.09)), z: clampZ(D / 2 - 1.0 - i * 1.7), rotY: 0 };
+    case 'cabinet':
+      return { x: clampX(-wallSide * (W / 2 - 0.55 - i * 1.0)), z: clampZ(-D / 2 + 0.3), rotY: 0 };
     case 'kiosk':
       return {
-        x: clampX(-wallSide * (W / 2 - 0.45)),
-        z: clampZ(-D / 2 + 0.9 + i * 0.8),
+        x: clampX(-wallSide * (W * 0.18 + i * 0.9)),
+        z: clampZ(-D / 2 + 0.5),
         rotY: -wallSide * 0.6,
       };
     case 'bin':
     default:
-      return { x: clampX(wallSide * (W / 2 - 0.25)), z: clampZ(D / 2 - 0.4 - i * 0.6), rotY: 0 };
+      // Back of the screen-side flank, out of the helpdesk's way.
+      return { x: clampX(wallSide * (W / 2 - 0.25)), z: clampZ(-D / 2 + 0.4 + i * 0.6), rotY: 0 };
   }
 }
 

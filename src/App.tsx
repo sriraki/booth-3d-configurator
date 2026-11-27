@@ -21,7 +21,7 @@ import * as store from './storage';
  *  sides, the furniture kit, seating. A session saved against an older design
  *  would otherwise pin defaults the design has since moved on from, so it
  *  starts from the new one. Artwork and screen media are kept either way. */
-const CFG_REV = 5;
+const CFG_REV = 6;
 
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
