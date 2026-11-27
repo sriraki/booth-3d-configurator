@@ -41,6 +41,8 @@ export interface Config {
   thirdMirror: boolean;
   /** Per-stall furniture overrides. Stalls not listed take the defaults. */
   kit: Partial<Record<StallId, Kit>>;
+  /** Design revision. A saved session from an older one starts fresh. */
+  rev: number;
   logo: string | null;      // data URL
   carpet: string;
   fasciaColor: string;

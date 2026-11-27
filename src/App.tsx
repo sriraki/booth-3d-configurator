@@ -17,6 +17,12 @@ import {
 } from './artwork';
 import * as store from './storage';
 
+/** Bumped whenever the stand design itself changes -- names, footprint, open
+ *  sides, the furniture kit, seating. A session saved against an older design
+ *  would otherwise pin defaults the design has since moved on from, so it
+ *  starts from the new one. Artwork and screen media are kept either way. */
+const CFG_REV = 2;
+
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
   companyName: 'DEPARTMENT OF TECHNICAL EDUCATION',
@@ -33,7 +39,8 @@ const INITIAL: Config = {
   },
   logo: null,
   carpet: '#6b6e72', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
-  showSpotBeams: false, showHall: true, ambient: 0.62, chairsPerTable: 4,
+  showSpotBeams: false, showHall: true, ambient: 0.62, chairsPerTable: 3,
+  rev: CFG_REV,
 };
 
 /** Everything that decides how many stalls there are, where they stand and
@@ -120,6 +127,7 @@ export default function App() {
   const [showSafeArea, setShowSafeArea] = useState(false);
   const [rotateMode, setRotateMode] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [exportW, setExportW] = useState(2560);
   const [restored, setRestored] = useState(false);
 
   const three = useRef<any>(null);
@@ -462,19 +470,21 @@ export default function App() {
     (async () => {
       const snap = await store.load();
       if (snap) {
+        const stale = snap.cfg?.rev !== CFG_REV;
         // Merge over INITIAL: a session saved before a setting existed would
         // otherwise restore it as undefined and silently disable the feature.
-        const cfg = { ...INITIAL, ...snap.cfg };
+        const cfg = stale ? INITIAL : { ...INITIAL, ...snap.cfg };
         // Seeded from the RAW snapshot, not the merged config: a session saved
         // before a structural setting existed then reads as a change, and the
         // layout effect rebuilds it instead of restoring stale placements.
-        prevKey.current = keyOf(snap.cfg);
+        prevKey.current = stale ? '' : keyOf(snap.cfg);
         setCfg(cfg);
-        setPlacements(snap.placements);
-        setTvs(snap.tvs);
+        if (!stale) { setPlacements(snap.placements); setTvs(snap.tvs); }
         setArtworks(snap.artworks);
         setTvMedia(snap.tvMedia ?? {});
-        setToast('Restored your last session');
+        setToast(stale
+          ? 'Stand design updated — your artwork was kept'
+          : 'Restored your last session');
       }
       setRestored(true);
     })();
@@ -498,14 +508,48 @@ export default function App() {
 
   const specs = useMemo(() => computeSpecs(cfg, placements, tvs), [cfg, placements, tvs]);
 
-  const savePng = () => {
+  /**
+   * Export exactly what is on screen, at print resolution.
+   *
+   * The angle is whatever the camera is pointing at right now -- orbit, zoom
+   * and pick a view first, then export. Resolution is raised by rendering the
+   * same camera into a larger drawing buffer rather than resizing the canvas,
+   * so the framing is identical to the preview instead of revealing more of
+   * the scene at the edges. The GPU's own limit caps it.
+   */
+  const exportImage = (targetW: number) => {
+    const t = three.current;
     const gl = glRef.current;
-    if (!gl) return;
-    const url = gl.domElement.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `booth_${cfg.width}x${cfg.depth}_${stallsOf(cfg).length}stall.png`;
-    a.click();
+    if (!t || !gl) { setToast('Nothing to export yet'); return; }
+
+    const canvas = gl.domElement as HTMLCanvasElement;
+    const cssW = canvas.clientWidth || canvas.width;
+    const cssH = canvas.clientHeight || canvas.height;
+    const maxPr = Math.max(1, (gl.capabilities?.maxTextureSize ?? 4096) / Math.max(cssW, cssH));
+    const pr = Math.max(1, Math.min(targetW / cssW, maxPr));
+    const prev = gl.getPixelRatio();
+
+    try {
+      gl.setPixelRatio(pr);
+      gl.setSize(cssW, cssH, false);     // false: leave the CSS size alone
+      gl.render(t.scene, t.camera);
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      // Report the drawing buffer itself, not a recomputation of it: the
+      // renderer rounds, so the two disagree by a pixel.
+      const outW = canvas.width, outH = canvas.height;
+      a.download = `booth_${view}_${stallsOf(cfg).length}stall_${outW}px.png`;
+      a.click();
+      setToast(`Exported ${outW} × ${outH} px` +
+        (outW < targetW - 1 ? ' — capped by this GPU' : ''));
+    } catch {
+      setToast('Export failed — try a smaller size');
+    } finally {
+      gl.setPixelRatio(prev);
+      gl.setSize(cssW, cssH, false);
+      gl.render(t.scene, t.camera);
+    }
   };
 
   const exportTxt = () => {
@@ -595,6 +639,7 @@ export default function App() {
         updateArt={updateArt} clearArt={clearArt}
         showSafeArea={showSafeArea} setShowSafeArea={setShowSafeArea}
         assign={assign}
+        exportW={exportW} setExportW={setExportW} exportImage={exportImage}
       />
 
       <div
@@ -652,7 +697,7 @@ export default function App() {
         {toast && <div className="toast">{toast}</div>}
       </div>
 
-      <SpecPanel cfg={cfg} specs={specs} onPng={savePng} onTxt={exportTxt} />
+      <SpecPanel cfg={cfg} specs={specs} onPng={() => exportImage(exportW)} onTxt={exportTxt} />
     </div>
   );
 }

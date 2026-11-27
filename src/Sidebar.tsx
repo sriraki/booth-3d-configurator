@@ -28,6 +28,7 @@ export function Controls({
   tvMedia, updateTvMedia, clearTvMedia, setAllPlaying, assignTvMedia,
   artworks, selectedSurface, onPickSurface, updateArt, clearArt,
   showSafeArea, setShowSafeArea, assign,
+  exportW, setExportW, exportImage,
 }: {
   cfg: Config; set: (p: Partial<Config>) => void;
   /** The stall being edited, and a setter that writes to its own fields. */
@@ -61,6 +62,8 @@ export function Controls({
   clearArt: (id: SurfaceId) => void;
   showSafeArea: boolean; setShowSafeArea: (v: boolean) => void;
   assign: (id: SurfaceId, f: File) => void;
+  exportW: number; setExportW: (w: number) => void;
+  exportImage: (w: number) => void;
 }) {
   const walls = wallsFor(scfg.openSides, scfg.mirror);
 
@@ -494,6 +497,23 @@ export function Controls({
         </div>
         <button className="ghost full" onClick={onReset}>Reset layout</button>
       </section>
+
+      <section>
+        <h2>Export image</h2>
+        <div className="note">
+          Turn the stand to the angle you want — orbit, zoom, or pick a view
+          above — then export. The image is exactly what is on screen.
+        </div>
+        <div className="seg">
+          {[1920, 2560, 3840].map((w) => (
+            <button key={w} className={exportW === w ? 'on' : ''}
+              onClick={() => setExportW(w)}>{w === 3840 ? '4K' : `${w}`}</button>
+          ))}
+        </div>
+        <button className="full" onClick={() => exportImage(exportW)}>
+          Export PNG · {exportW} px wide
+        </button>
+      </section>
     </aside>
   );
 }
@@ -561,7 +581,7 @@ export function SpecPanel({ cfg, specs, onPng, onTxt }: {
       )}
 
       <div className="actions">
-        <button onClick={onPng}>Save PNG</button>
+        <button onClick={onPng}>Export PNG</button>
         <button className="ghost" onClick={onTxt}>Export spec</button>
       </div>
     </aside>
