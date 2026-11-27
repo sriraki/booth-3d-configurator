@@ -6,7 +6,7 @@ import Scene from './Scene';
 import { Controls, SpecPanel } from './Sidebar';
 import { autoLayout, autoTvs, computeSpecs, wallsFor, fasciaEdges, anchorFor } from './booth';
 import { TOTAL_H } from './constants';
-import type { Config, ItemType, Placement, Tv } from './types';
+import type { Config, ItemType, Placement, Tv, TvMedia } from './types';
 import {
   DEFAULT_ARTWORK, buildArtworkTexture, loadImage, surfacePrint, surfaceLabel,
   liveSurfaces, type Artwork, type SurfaceId,
@@ -74,6 +74,7 @@ export default function App() {
   const [view, setView] = useState('hero');
 
   const [artworks, setArtworks] = useState<Record<SurfaceId, Artwork>>({});
+  const [tvMedia, setTvMedia] = useState<Record<string, TvMedia>>({});
   const [artTex, setArtTex] = useState<Record<SurfaceId, THREE.Texture>>({});
   const [hoverSurface, setHoverSurface] = useState<SurfaceId | null>(null);
   const [selectedSurface, setSelectedSurface] = useState<SurfaceId | null>(null);
@@ -196,6 +197,60 @@ export default function App() {
     }
   };
 
+  // Videos are kept out of browser storage above this size: the autosave
+  // rewrites the whole snapshot, and re-serialising a large file on every
+  // edit stalls the UI. Such a video plays fine, it just won't survive reload.
+  const MAX_PERSIST_BYTES = 25 * 1024 * 1024;
+
+  const assignTvMedia = (tvId: string, files: File[]) => {
+    const vid = files.find((f) => f.type.startsWith('video/'));
+    const imgs = files.filter((f) => f.type.startsWith('image/'));
+    if (!vid && imgs.length === 0) {
+      setToast('Screens take a video, or images for a slideshow');
+      return;
+    }
+    setTvMedia((m) => {
+      m[tvId]?.items.forEach((i) => URL.revokeObjectURL(i.src));
+      if (vid) {
+        const keep = vid.size <= MAX_PERSIST_BYTES;
+        return {
+          ...m,
+          [tvId]: {
+            kind: 'video',
+            items: [{ name: vid.name, src: URL.createObjectURL(vid), blob: keep ? vid : undefined }],
+            playing: true, muted: true, loop: true, intervalMs: 4000, persisted: keep,
+          },
+        };
+      }
+      return {
+        ...m,
+        [tvId]: {
+          kind: 'slideshow',
+          items: imgs.map((f) => ({ name: f.name, src: URL.createObjectURL(f), blob: f })),
+          playing: true, muted: true, loop: true, intervalMs: 4000, persisted: true,
+        },
+      };
+    });
+    setToast(vid
+      ? `${vid.name} → screen${vid.size > MAX_PERSIST_BYTES ? ' (too large to save, session only)' : ''}`
+      : `${imgs.length} slide${imgs.length > 1 ? 's' : ''} → screen`);
+  };
+
+  const updateTvMedia = (tvId: string, patch: Partial<TvMedia>) =>
+    setTvMedia((m) => (m[tvId] ? { ...m, [tvId]: { ...m[tvId], ...patch } } : m));
+
+  const clearTvMedia = (tvId: string) =>
+    setTvMedia((m) => {
+      if (!m[tvId]) return m;
+      m[tvId].items.forEach((i) => URL.revokeObjectURL(i.src));
+      const { [tvId]: _gone, ...rest } = m;
+      return rest;
+    });
+
+  const setAllPlaying = (playing: boolean) =>
+    setTvMedia((m) => Object.fromEntries(
+      Object.entries(m).map(([k, v]) => [k, { ...v, playing }])));
+
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
@@ -206,14 +261,20 @@ export default function App() {
     e.preventDefault();
     const id = surfaceAt(e.clientX, e.clientY);
     setHoverSurface(null);
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-    if (!id) { setToast('Drop it directly onto a panel, fascia, counter or kiosk'); return; }
-    if (!file.type.startsWith('image/')) {
-      setToast('PNG or JPG only for now — PDF and video land in the next phase');
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length === 0) return;
+    if (!id) { setToast('Drop it directly onto a surface or a screen'); return; }
+
+    if (id.startsWith('tv:')) {
+      assignTvMedia(id.slice(3), files);
+      setSelectedSurface(id);
       return;
     }
-    await assign(id, file);
+    if (!files[0].type.startsWith('image/')) {
+      setToast('PNG or JPG for printed surfaces — video goes on a screen');
+      return;
+    }
+    await assign(id, files[0]);
   };
 
   const updateArt = (id: SurfaceId, patch: Partial<Artwork>) =>
@@ -246,8 +307,27 @@ export default function App() {
       }
       return changed ? out : a;
     });
-    if (selectedSurface && !live.has(selectedSurface)) setSelectedSurface(null);
+    if (selectedSurface && !live.has(selectedSurface) && !selectedSurface.startsWith('tv:')) {
+      setSelectedSurface(null);
+    }
   }, [placements, cfg]);
+
+  useEffect(() => {
+    const live = new Set(tvs.map((t) => t.id));
+    setTvMedia((m) => {
+      let changed = false;
+      const out: Record<string, TvMedia> = {};
+      for (const [id, media] of Object.entries(m)) {
+        if (!live.has(id)) {
+          media.items.forEach((i) => URL.revokeObjectURL(i.src));
+          changed = true;
+          continue;
+        }
+        out[id] = media;
+      }
+      return changed ? out : m;
+    });
+  }, [tvs]);
 
   // --- Persistence --------------------------------------------------------
   useEffect(() => {
@@ -262,6 +342,7 @@ export default function App() {
         setPlacements(snap.placements);
         setTvs(snap.tvs);
         setArtworks(snap.artworks);
+        setTvMedia(snap.tvMedia ?? {});
         setToast('Restored your last session');
       }
       setRestored(true);
@@ -270,9 +351,9 @@ export default function App() {
 
   useEffect(() => {
     if (!restored) return;   // never overwrite a saved session before it loads
-    const t = setTimeout(() => { store.save(cfg, placements, tvs, artworks); }, 600);
+    const t = setTimeout(() => { store.save(cfg, placements, tvs, artworks, tvMedia); }, 600);
     return () => clearTimeout(t);
-  }, [cfg, placements, tvs, artworks, restored]);
+  }, [cfg, placements, tvs, artworks, tvMedia, restored]);
 
   useEffect(() => {
     if (!toast) return;
@@ -347,6 +428,9 @@ export default function App() {
         placements={placements} setPlacements={setPlacements}
         onReset={reset} view={view} setView={setView}
         addItem={addItem} removeItem={removeItem} countOf={countOf}
+        tvMedia={tvMedia} updateTvMedia={updateTvMedia}
+        clearTvMedia={clearTvMedia} setAllPlaying={setAllPlaying}
+        assignTvMedia={assignTvMedia}
         artworks={artworks} selectedSurface={selectedSurface}
         onPickSurface={setSelectedSurface}
         updateArt={updateArt} clearArt={clearArt}
@@ -387,6 +471,7 @@ export default function App() {
               onPickSurface={setSelectedSurface}
               showSafeArea={showSafeArea}
               view={view}
+              tvMedia={tvMedia}
             />
           </Suspense>
           <ContactShadows position={[0, 0.012, 0]} opacity={0.42}

@@ -32,3 +32,20 @@ export interface Config {
   ambient: number;
   chairsPerTable: number;
 }
+
+export interface TvMediaItem {
+  name: string;
+  src: string;      // object URL
+  blob?: Blob;
+}
+
+export interface TvMedia {
+  kind: 'video' | 'slideshow';
+  items: TvMediaItem[];
+  playing: boolean;
+  muted: boolean;
+  loop: boolean;
+  intervalMs: number;   // slideshow dwell per slide
+  /** false when the file was too large to keep in browser storage */
+  persisted: boolean;
+}

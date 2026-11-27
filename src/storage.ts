@@ -1,4 +1,4 @@
-import type { Config, Placement, Tv } from './types';
+import type { Config, Placement, Tv, TvMedia } from './types';
 import type { Artwork, SurfaceId } from './artwork';
 
 // Minimal IndexedDB wrapper. Artwork is stored as Blobs (structured-cloneable)
@@ -23,18 +23,22 @@ function open(): Promise<IDBDatabase> {
 }
 
 type StoredArt = Omit<Artwork, 'src' | 'blob'> & { blob: Blob | null };
+type StoredMediaItem = { name: string; blob: Blob | null };
+type StoredMedia = Omit<TvMedia, 'items'> & { items: StoredMediaItem[] };
 
 export interface Snapshot {
   cfg: Config;
   placements: Placement[];
   tvs: Tv[];
   artworks: Record<SurfaceId, StoredArt>;
+  tvMedia: Record<string, StoredMedia>;
   savedAt: number;
 }
 
 export async function save(
   cfg: Config, placements: Placement[], tvs: Tv[],
   artworks: Record<SurfaceId, Artwork>,
+  tvMedia: Record<string, TvMedia>,
 ) {
   try {
     const db = await open();
@@ -43,7 +47,16 @@ export async function save(
       const { src, blob, ...rest } = a;
       stored[id] = { ...rest, blob: blob ?? null };
     }
-    const snap: Snapshot = { cfg, placements, tvs, artworks: stored, savedAt: Date.now() };
+    const media: Record<string, StoredMedia> = {};
+    for (const [id, m] of Object.entries(tvMedia)) {
+      // A clip too large to persist has no blob; storing the shell would
+      // restore a screen that can never play, so skip it entirely.
+      if (!m.persisted) continue;
+      media[id] = { ...m, items: m.items.map((i) => ({ name: i.name, blob: i.blob ?? null })) };
+    }
+    const snap: Snapshot = {
+      cfg, placements, tvs, artworks: stored, tvMedia: media, savedAt: Date.now(),
+    };
     await new Promise<void>((res, rej) => {
       const tx = db.transaction(STORE, 'readwrite');
       tx.objectStore(STORE).put(snap, KEY);
@@ -57,9 +70,11 @@ export async function save(
   }
 }
 
-export async function load(): Promise<
-  { cfg: Config; placements: Placement[]; tvs: Tv[]; artworks: Record<SurfaceId, Artwork> } | null
-> {
+export async function load(): Promise<{
+  cfg: Config; placements: Placement[]; tvs: Tv[];
+  artworks: Record<SurfaceId, Artwork>;
+  tvMedia: Record<string, TvMedia>;
+} | null> {
   try {
     const db = await open();
     const snap = await new Promise<Snapshot | undefined>((res, rej) => {
@@ -76,7 +91,14 @@ export async function load(): Promise<
       if (!a.blob) continue;
       artworks[id] = { ...a, blob: a.blob, src: URL.createObjectURL(a.blob) };
     }
-    return { cfg: snap.cfg, placements: snap.placements, tvs: snap.tvs, artworks };
+    const tvMedia: Record<string, TvMedia> = {};
+    for (const [id, m] of Object.entries(snap.tvMedia ?? {})) {
+      const items = m.items
+        .filter((i) => i.blob)
+        .map((i) => ({ name: i.name, blob: i.blob!, src: URL.createObjectURL(i.blob!) }));
+      if (items.length) tvMedia[id] = { ...m, items };
+    }
+    return { cfg: snap.cfg, placements: snap.placements, tvs: snap.tvs, artworks, tvMedia };
   } catch {
     return null;
   }

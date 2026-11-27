@@ -45,6 +45,14 @@ fascia to 6 panels / 18 m fascia. Both are cost drivers, so both are reported li
   and flagging anything under 72 dpi as too soft to print
 - Work auto-saves to the browser, so a reload keeps your artwork
 
+### Screens
+- Drop a video onto a TV for live playback, or several images for a slideshow
+- Play / pause / loop / mute per screen, plus a global play-all and pause-all
+  so every screen runs together during a walkthrough
+- Adjustable dwell time per slide
+- Clips up to 25 MB are kept in browser storage; larger ones play for the
+  session but are not saved, and the UI says so
+
 ### Layout
 - Every furniture type is a count you control: counter, coffee table + chairs,
   cabinet, kiosk and bin can each be taken to zero and put back

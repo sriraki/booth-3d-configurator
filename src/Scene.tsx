@@ -8,8 +8,8 @@ import {
 import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, spotlights,
 } from './booth';
-import type { Config, EdgeId, Placement, Tv, WallId } from './types';
-import type { SurfaceId } from './artwork';
+import type { Config, EdgeId, Placement, Tv, TvMedia, WallId } from './types';
+import { DEFAULT_ARTWORK, buildArtworkTexture, loadImage, type SurfaceId } from './artwork';
 import { makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -525,7 +525,124 @@ function Bin() {
   );
 }
 
-function TvUnit({ sizeIdx }: { sizeIdx: number }) {
+/**
+ * Live screen content. A video drives a VideoTexture directly; a slideshow
+ * pre-composites each image to the screen's aspect and cycles them on a timer.
+ * The element and its texture are owned here so playback is torn down cleanly
+ * when the media, the TV or the whole stall changes.
+ */
+function TvScreen({ id, w, h, media, ctx }: {
+  id: SurfaceId; w: number; h: number;
+  media: TvMedia | undefined; ctx: SurfaceCtx;
+}) {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  const [slides, setSlides] = useState<THREE.Texture[]>([]);
+  const [idx, setIdx] = useState(0);
+  const video = useRef<HTMLVideoElement | null>(null);
+
+  const srcKey = media ? media.items.map((i) => i.src).join('|') : '';
+
+  // --- video ---
+  useEffect(() => {
+    if (media?.kind !== 'video' || !media.items[0]) return;
+    const v = document.createElement('video');
+    v.src = media.items[0].src;
+    v.loop = media.loop;
+    v.muted = media.muted;
+    v.playsInline = true;
+    v.preload = 'auto';
+    video.current = v;
+    const t = new THREE.VideoTexture(v);
+    t.colorSpace = THREE.SRGBColorSpace;
+    setTex(t);
+    if (media.playing) v.play().catch(() => { /* autoplay refused until a gesture */ });
+    return () => {
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+      t.dispose();
+      video.current = null;
+      setTex(null);
+    };
+  }, [media?.kind, srcKey]);
+
+  // transport changes shouldn't rebuild the element
+  useEffect(() => {
+    const v = video.current;
+    if (!v || media?.kind !== 'video') return;
+    v.loop = media.loop;
+    v.muted = media.muted;
+    if (media.playing) v.play().catch(() => {}); else v.pause();
+  }, [media?.playing, media?.muted, media?.loop, media?.kind]);
+
+  // --- slideshow ---
+  useEffect(() => {
+    if (media?.kind !== 'slideshow') { setSlides([]); return; }
+    let dead = false;
+    const built: THREE.Texture[] = [];
+    (async () => {
+      const spec = { w: w * 1000, h: h * 1000, frame: 0, label: 'TV' };
+      for (const it of media.items) {
+        try {
+          const img = await loadImage(it.src);
+          if (dead) return;
+          built.push(buildArtworkTexture(img, {
+            ...DEFAULT_ARTWORK, name: it.name, src: it.src,
+            imgW: img.naturalWidth, imgH: img.naturalHeight,
+          }, spec));
+        } catch { /* skip an unreadable slide */ }
+      }
+      if (dead) { built.forEach((t) => t.dispose()); return; }
+      setSlides(built);
+      setIdx(0);
+    })();
+    return () => { dead = true; built.forEach((t) => t.dispose()); };
+  }, [media?.kind, srcKey, w, h]);
+
+  useEffect(() => {
+    if (media?.kind !== 'slideshow' || !media.playing || slides.length < 2) return;
+    const t = setInterval(
+      () => setIdx((i) => (i + 1) % slides.length),
+      Math.max(800, media.intervalMs),
+    );
+    return () => clearInterval(t);
+  }, [media?.kind, media?.playing, media?.intervalMs, slides.length]);
+
+  const map = media?.kind === 'slideshow' ? slides[idx] ?? null : tex;
+  const lit = ctx.hover === id || ctx.selected === id;
+
+  return (
+    <group>
+      <mesh
+        position={[0, 0, TV_DEPTH / 2 + 0.002]}
+        userData={{ surfaceId: id }}
+        onClick={(e) => { e.stopPropagation(); ctx.onPick(id); }}
+      >
+        <planeGeometry args={[w, h]} />
+        {/* keyed so adding or removing a map recompiles the shader */}
+        <meshBasicMaterial key={map ? map.uuid : 'idle'}
+          map={map ?? undefined} color={map ? '#ffffff' : '#16314a'} toneMapped={false} />
+      </mesh>
+      {!map && (
+        <mesh position={[0, 0, TV_DEPTH / 2 + 0.003]}>
+          <planeGeometry args={[w * 0.96, h * 0.96]} />
+          <meshBasicMaterial color="#1d4e74" toneMapped={false} />
+        </mesh>
+      )}
+      {lit && (
+        <mesh position={[0, 0, TV_DEPTH / 2 + 0.006]}>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial color={ctx.hover === id ? '#4da3ff' : '#2f81f7'}
+            transparent opacity={ctx.hover === id ? 0.34 : 0.14} depthWrite={false} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+function TvUnit({ id, sizeIdx, media, ctx }: {
+  id: SurfaceId; sizeIdx: number; media: TvMedia | undefined; ctx: SurfaceCtx;
+}) {
   const s = TV_SIZES[sizeIdx];
   return (
     <group>
@@ -538,10 +655,7 @@ function TvUnit({ sizeIdx }: { sizeIdx: number }) {
         <boxGeometry args={[s.w, s.h, TV_DEPTH]} />
         <meshStandardMaterial color="#111315" roughness={0.35} metalness={0.3} />
       </mesh>
-      <mesh position={[0, 0, TV_DEPTH / 2 + 0.002]}>
-        <planeGeometry args={[s.w - 0.03, s.h - 0.03]} />
-        <meshStandardMaterial color="#0d1b2a" emissive="#1d4e74" emissiveIntensity={0.85} roughness={0.2} />
-      </mesh>
+      <TvScreen id={id} w={s.w - 0.03} h={s.h - 0.03} media={media} ctx={ctx} />
     </group>
   );
 }
@@ -619,7 +733,7 @@ function Draggable({
 
 export default function Scene({
   cfg, placements, tvs, onMove, setOrbit, selected, onSelect,
-  artTex, hoverSurface, selectedSurface, onPickSurface, showSafeArea, view,
+  artTex, hoverSurface, selectedSurface, onPickSurface, showSafeArea, view, tvMedia,
 }: {
   cfg: Config; placements: Placement[]; tvs: Tv[];
   onMove: (id: string, x: number, z: number) => void;
@@ -631,6 +745,7 @@ export default function Scene({
   onPickSurface: (id: SurfaceId) => void;
   showSafeArea: boolean;
   view: string;
+  tvMedia: Record<string, TvMedia>;
 }) {
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
@@ -686,7 +801,8 @@ export default function Scene({
         return (
           <group key={t.id} position={[p.x, TV_CENTRE_H, p.z]} rotation={[0, p.rotY, 0]}>
             <group position={[0, 0, WALL_T / 2 + TV_DEPTH / 2 + 0.02]}>
-              <TvUnit sizeIdx={t.sizeIdx} />
+              <TvUnit id={`tv:${t.id}`} sizeIdx={t.sizeIdx}
+                media={tvMedia[t.id]} ctx={ctx} />
             </group>
           </group>
         );

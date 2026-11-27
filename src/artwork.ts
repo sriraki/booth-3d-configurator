@@ -57,6 +57,7 @@ export function surfaceLabel(id: SurfaceId): string {
   if (kind === 'fascia') return `fascia · ${a}`;
   if (kind === 'counter') return 'counter face';
   if (kind === 'kiosk') return 'kiosk screen';
+  if (kind === 'tv') return 'TV screen';
   return id;
 }
 

@@ -1,6 +1,6 @@
 import { TV_SIZES, SIZES, PANEL_PRINT_H } from './constants';
 import { wallsFor, wallLength, ITEM_TYPES, ITEM_LABEL } from './booth';
-import type { Config, ItemType, Placement, Tv, WallId } from './types';
+import type { Config, ItemType, Placement, Tv, TvMedia, WallId } from './types';
 import type { Specs } from './booth';
 import {
   surfaceLabel, surfacePrint, effectiveDpi, resolutionVerdict,
@@ -21,6 +21,7 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 export function Controls({
   cfg, set, tvs, setTvs, placements, setPlacements, onReset, view, setView,
   addItem, removeItem, countOf,
+  tvMedia, updateTvMedia, clearTvMedia, setAllPlaying, assignTvMedia,
   artworks, selectedSurface, onPickSurface, updateArt, clearArt,
   showSafeArea, setShowSafeArea, assign,
 }: {
@@ -29,6 +30,11 @@ export function Controls({
   placements: Placement[]; setPlacements: (p: Placement[]) => void;
   onReset: () => void;
   view: string; setView: (v: string) => void;
+  tvMedia: Record<string, TvMedia>;
+  updateTvMedia: (id: string, patch: Partial<TvMedia>) => void;
+  clearTvMedia: (id: string) => void;
+  setAllPlaying: (v: boolean) => void;
+  assignTvMedia: (id: string, files: File[]) => void;
   addItem: (t: ItemType) => void;
   removeItem: (t: ItemType) => void;
   countOf: (t: ItemType) => number;
@@ -121,7 +127,18 @@ export function Controls({
       </section>
 
       <section>
-        <h2>Screens <button className="mini" onClick={addTv}>+ Add TV</button></h2>
+        <h2>
+          Screens
+          <span className="hgroup">
+            {Object.keys(tvMedia).length > 0 && (
+              <>
+                <button className="mini" onClick={() => setAllPlaying(true)}>▶ all</button>
+                <button className="mini" onClick={() => setAllPlaying(false)}>❚❚ all</button>
+              </>
+            )}
+            <button className="mini" onClick={addTv}>+ Add TV</button>
+          </span>
+        </h2>
         {tvs.length === 0 && <div className="note">No TVs placed.</div>}
         {tvs.map((t) => {
           const len = wallLength(t.wall, cfg.width, cfg.depth);
@@ -145,6 +162,58 @@ export function Controls({
                   {Math.ceil(TV_SIZES[t.sizeIdx].w / 1.0) > 1 ? 's' : ''}</span>
                 <button className="mini danger" onClick={() => setTvs(tvs.filter((x) => x.id !== t.id))}>Remove</button>
               </div>
+
+              {(() => {
+                const m = tvMedia[t.id];
+                if (!m) {
+                  return (
+                    <div className="media empty">
+                      Drag a video here for playback, or several images for a slideshow.
+                      <label className="file">Or choose files
+                        <input type="file" accept="video/*,image/*" multiple
+                          onChange={(e) => {
+                            const f = Array.from(e.target.files ?? []);
+                            if (f.length) assignTvMedia(t.id, f);
+                          }} />
+                      </label>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="media">
+                    <div className="mediahead">
+                      <span className="kind">{m.kind === 'video' ? 'Video' : `Slideshow · ${m.items.length}`}</span>
+                      <span className="fname" title={m.items.map((i) => i.name).join(', ')}>
+                        {m.items[0].name}{m.items.length > 1 ? ` +${m.items.length - 1}` : ''}
+                      </span>
+                    </div>
+                    <div className="transport">
+                      <button className="mini" onClick={() => updateTvMedia(t.id, { playing: !m.playing })}>
+                        {m.playing ? '❚❚ Pause' : '▶ Play'}
+                      </button>
+                      {m.kind === 'video' && (
+                        <button className={`mini${m.muted ? '' : ' on'}`}
+                          onClick={() => updateTvMedia(t.id, { muted: !m.muted })}>
+                          {m.muted ? 'Muted' : 'Sound'}
+                        </button>
+                      )}
+                      <button className={`mini${m.loop ? ' on' : ''}`}
+                        onClick={() => updateTvMedia(t.id, { loop: !m.loop })}>Loop</button>
+                      <button className="mini danger" onClick={() => clearTvMedia(t.id)}>Clear</button>
+                    </div>
+                    {m.kind === 'slideshow' && m.items.length > 1 && (
+                      <label>Seconds per slide: <b>{(m.intervalMs / 1000).toFixed(1)}</b>
+                        <input type="range" min={1} max={12} step={0.5}
+                          value={m.intervalMs / 1000}
+                          onChange={(e) => updateTvMedia(t.id, { intervalMs: +e.target.value * 1000 })} />
+                      </label>
+                    )}
+                    {!m.persisted && (
+                      <div className="tiny">Too large to save — this clip is for this session only.</div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
