@@ -7,6 +7,11 @@ import { Controls, SpecPanel } from './Sidebar';
 import { autoLayout, autoTvs, computeSpecs, wallsFor, fasciaEdges } from './booth';
 import { TOTAL_H } from './constants';
 import type { Config, Placement, Tv } from './types';
+import {
+  DEFAULT_ARTWORK, buildArtworkTexture, loadImage, surfacePrint, surfaceLabel,
+  type Artwork, type SurfaceId,
+} from './artwork';
+import * as store from './storage';
 
 const INITIAL: Config = {
   width: 3, depth: 3, openSides: 1, mirror: false,
@@ -14,6 +19,14 @@ const INITIAL: Config = {
   carpet: '#5a5f66', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
   showSpotBeams: false, ambient: 0.55, chairsPerTable: 4,
 };
+
+/** Drag events don't flow through R3F's pointer system, so the raycast for
+ *  drop targeting needs direct access to the scene, camera and canvas. */
+function Capture({ sink }: { sink: React.MutableRefObject<any> }) {
+  const { scene, camera, gl } = useThree();
+  useEffect(() => { sink.current = { scene, camera, gl }; }, [scene, camera, gl, sink]);
+  return null;
+}
 
 function CameraRig({ view, cfg, controls }: { view: string; cfg: Config; controls: any }) {
   const { camera, size } = useThree();
@@ -60,6 +73,16 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState('hero');
 
+  const [artworks, setArtworks] = useState<Record<SurfaceId, Artwork>>({});
+  const [artTex, setArtTex] = useState<Record<SurfaceId, THREE.Texture>>({});
+  const [hoverSurface, setHoverSurface] = useState<SurfaceId | null>(null);
+  const [selectedSurface, setSelectedSurface] = useState<SurfaceId | null>(null);
+  const [showSafeArea, setShowSafeArea] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+
+  const three = useRef<any>(null);
+  const texCache = useRef<Map<SurfaceId, { art: Artwork; tex: THREE.Texture }>>(new Map());
   const controls = useRef<any>(null);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
 
@@ -78,6 +101,136 @@ export default function App() {
 
   const onMove = (id: string, x: number, z: number) =>
     setPlacements((ps) => ps.map((p) => (p.id === id ? { ...p, x, z } : p)));
+
+  // --- Artwork textures ---------------------------------------------------
+  // Rebuilt only for surfaces whose Artwork object actually changed; editing
+  // one panel on a 6x6 stall must not re-composite the other seventeen.
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      const cache = texCache.current;
+      const next: Record<SurfaceId, THREE.Texture> = {};
+      for (const [id, art] of Object.entries(artworks)) {
+        const hit = cache.get(id);
+        if (hit && hit.art === art) { next[id] = hit.tex; continue; }
+        const spec = surfacePrint(id, cfg);
+        if (!spec) continue;
+        try {
+          const img = await loadImage(art.src);
+          if (dead) return;
+          const tex = buildArtworkTexture(img, art, spec);
+          hit?.tex.dispose();
+          cache.set(id, { art, tex });
+          next[id] = tex;
+        } catch { /* unreadable image: leave the surface blank */ }
+      }
+      for (const [id, v] of cache) {
+        if (!(id in next)) { v.tex.dispose(); cache.delete(id); }
+      }
+      if (!dead) setArtTex(next);
+    })();
+    return () => { dead = true; };
+  }, [artworks, cfg.width, cfg.depth]);
+
+  // --- Drop targeting -----------------------------------------------------
+  const surfaceAt = (clientX: number, clientY: number): SurfaceId | null => {
+    const t = three.current;
+    if (!t) return null;
+    const rect = t.gl.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, t.camera);
+    const targets: THREE.Object3D[] = [];
+    t.scene.traverse((o: any) => { if (o.isMesh && o.userData?.surfaceId) targets.push(o); });
+    const hits = ray.intersectObjects(targets, false);
+    return hits.length ? (hits[0].object.userData.surfaceId as SurfaceId) : null;
+  };
+
+  const assign = async (id: SurfaceId, file: File) => {
+    const src = URL.createObjectURL(file);
+    try {
+      const img = await loadImage(src);
+      setArtworks((a) => {
+        const old = a[id];
+        if (old?.src) URL.revokeObjectURL(old.src);
+        return {
+          ...a,
+          [id]: {
+            name: file.name, src, blob: file,
+            imgW: img.naturalWidth, imgH: img.naturalHeight,
+            ...DEFAULT_ARTWORK,
+          },
+        };
+      });
+      setSelectedSurface(id);
+      setToast(`${file.name} → ${surfaceLabel(id)}`);
+    } catch {
+      URL.revokeObjectURL(src);
+      setToast(`Could not read ${file.name}`);
+    }
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setHoverSurface(surfaceAt(e.clientX, e.clientY));
+  };
+
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const id = surfaceAt(e.clientX, e.clientY);
+    setHoverSurface(null);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!id) { setToast('Drop it directly onto a panel, fascia, counter or kiosk'); return; }
+    if (!file.type.startsWith('image/')) {
+      setToast('PNG or JPG only for now — PDF and video land in the next phase');
+      return;
+    }
+    await assign(id, file);
+  };
+
+  const updateArt = (id: SurfaceId, patch: Partial<Artwork>) =>
+    setArtworks((a) => (a[id] ? { ...a, [id]: { ...a[id], ...patch } } : a));
+
+  const clearArt = (id: SurfaceId) =>
+    setArtworks((a) => {
+      if (!a[id]) return a;
+      URL.revokeObjectURL(a[id].src);
+      const { [id]: _gone, ...rest } = a;
+      return rest;
+    });
+
+  // --- Persistence --------------------------------------------------------
+  useEffect(() => {
+    (async () => {
+      const snap = await store.load();
+      if (snap) {
+        prevKey.current = `${snap.cfg.width}|${snap.cfg.depth}|${snap.cfg.openSides}|${snap.cfg.mirror}`;
+        setCfg(snap.cfg);
+        setPlacements(snap.placements);
+        setTvs(snap.tvs);
+        setArtworks(snap.artworks);
+        setToast('Restored your last session');
+      }
+      setRestored(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!restored) return;   // never overwrite a saved session before it loads
+    const t = setTimeout(() => { store.save(cfg, placements, tvs, artworks); }, 600);
+    return () => clearTimeout(t);
+  }, [cfg, placements, tvs, artworks, restored]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const reset = () => { setPlacements(autoLayout(cfg)); setTvs(autoTvs(cfg)); setSelected(null); };
 
@@ -145,9 +298,19 @@ export default function App() {
         tvs={tvs} setTvs={setTvs}
         placements={placements} setPlacements={setPlacements}
         onReset={reset} view={view} setView={setView}
+        artworks={artworks} selectedSurface={selectedSurface}
+        onPickSurface={setSelectedSurface}
+        updateArt={updateArt} clearArt={clearArt}
+        showSafeArea={showSafeArea} setShowSafeArea={setShowSafeArea}
+        assign={assign}
       />
 
-      <div className="stage">
+      <div
+        className={`stage${hoverSurface ? ' dropping' : ''}`}
+        onDragOver={onDragOver}
+        onDragLeave={() => setHoverSurface(null)}
+        onDrop={onDrop}
+      >
         <Canvas
           shadows
           dpr={[1, 2]}
@@ -162,12 +325,18 @@ export default function App() {
         >
           <color attach="background" args={['#1a1d21']} />
           <fog attach="fog" args={['#1a1d21', 22, 55]} />
+          <Capture sink={three} />
           <CameraRig view={view} cfg={cfg} controls={controls} />
           <Suspense fallback={null}>
             <Scene
               cfg={cfg} placements={placements} tvs={tvs}
               onMove={onMove} setOrbit={setOrbit}
               selected={selected} onSelect={setSelected}
+              artTex={artTex}
+              hoverSurface={hoverSurface}
+              selectedSurface={selectedSurface}
+              onPickSurface={setSelectedSurface}
+              showSafeArea={showSafeArea}
             />
           </Suspense>
           <ContactShadows position={[0, 0.012, 0]} opacity={0.42}
@@ -181,8 +350,11 @@ export default function App() {
         </Canvas>
 
         <div className="hint">
-          Drag furniture to reposition · scroll to zoom · right-drag to pan
+          {hoverSurface
+            ? `Drop to apply → ${surfaceLabel(hoverSurface)}`
+            : 'Drop a PNG/JPG onto any surface · drag furniture · scroll to zoom'}
         </div>
+        {toast && <div className="toast">{toast}</div>}
       </div>
 
       <SpecPanel cfg={cfg} specs={specs} onPng={savePng} onTxt={exportTxt} />

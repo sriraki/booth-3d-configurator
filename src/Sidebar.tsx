@@ -2,6 +2,10 @@ import { TV_SIZES, SIZES, PANEL_PRINT_H } from './constants';
 import { wallsFor, wallLength, defaultCounts } from './booth';
 import type { Config, Placement, Tv, WallId } from './types';
 import type { Specs } from './booth';
+import {
+  surfaceLabel, surfacePrint, effectiveDpi, resolutionVerdict,
+  TARGET_DPI, type Artwork, type FitMode, type SurfaceId,
+} from './artwork';
 
 const f1 = (n: number) => n.toFixed(1);
 const f0 = (n: number) => Math.round(n).toString();
@@ -16,12 +20,21 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 
 export function Controls({
   cfg, set, tvs, setTvs, placements, setPlacements, onReset, view, setView,
+  artworks, selectedSurface, onPickSurface, updateArt, clearArt,
+  showSafeArea, setShowSafeArea, assign,
 }: {
   cfg: Config; set: (p: Partial<Config>) => void;
   tvs: Tv[]; setTvs: (t: Tv[]) => void;
   placements: Placement[]; setPlacements: (p: Placement[]) => void;
   onReset: () => void;
   view: string; setView: (v: string) => void;
+  artworks: Record<SurfaceId, Artwork>;
+  selectedSurface: SurfaceId | null;
+  onPickSurface: (id: SurfaceId | null) => void;
+  updateArt: (id: SurfaceId, patch: Partial<Artwork>) => void;
+  clearArt: (id: SurfaceId) => void;
+  showSafeArea: boolean; setShowSafeArea: (v: boolean) => void;
+  assign: (id: SurfaceId, f: File) => void;
 }) {
   const walls = wallsFor(cfg.openSides, cfg.mirror);
   const kiosks = placements.filter((p) => p.type === 'kiosk');
@@ -150,6 +163,124 @@ export function Controls({
             setPlacements(placements.filter((p) => p.id !== kiosks[kiosks.length - 1].id))}>
             Remove last kiosk
           </button>
+        )}
+      </section>
+
+      <section>
+        <h2>
+          Artwork
+          <label className="check tight">
+            <input type="checkbox" checked={showSafeArea}
+              onChange={(e) => setShowSafeArea(e.target.checked)} />
+            safe area
+          </label>
+        </h2>
+
+        {!selectedSurface && (
+          <div className="note">
+            Drag a PNG or JPG onto any panel, fascia, counter or kiosk in the 3D view.
+            Click a surface to adjust what is already on it.
+          </div>
+        )}
+
+        {selectedSurface && (() => {
+          const art = artworks[selectedSurface];
+          const spec = surfacePrint(selectedSurface, cfg);
+          if (!art) {
+            return (
+              <div className="item">
+                <div className="selhead">{surfaceLabel(selectedSurface)}</div>
+                {spec && <div className="tiny">
+                  Printable {Math.round(spec.w)} × {Math.round(spec.h)} mm
+                </div>}
+                <label className="file">Choose an image
+                  <input type="file" accept="image/*" onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) assign(selectedSurface, f);
+                  }} />
+                </label>
+                <button className="ghost full" onClick={() => onPickSurface(null)}>Deselect</button>
+              </div>
+            );
+          }
+          const dpi = spec ? effectiveDpi(art, spec) : 0;
+          const verdict = resolutionVerdict(dpi);
+          return (
+            <div className="item">
+              <div className="selhead">{surfaceLabel(selectedSurface)}</div>
+              <div className="artrow">
+                <img className="thumb" src={art.src} alt="" />
+                <div className="artmeta">
+                  <div className="fname" title={art.name}>{art.name}</div>
+                  <div className="tiny">{art.imgW} × {art.imgH} px</div>
+                  {spec && (
+                    <div className={`dpi ${verdict}`}>
+                      {Math.round(dpi)} dpi at {Math.round(spec.w)} × {Math.round(spec.h)} mm
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {verdict === 'bad' && <div className="warn tightwarn">
+                Below 72 dpi — this will look visibly soft at full size.
+                Ask the client for artwork at least {spec
+                  ? Math.ceil((spec.w / 25.4) * TARGET_DPI) : 0} px wide.
+              </div>}
+              {verdict === 'soft' && <div className="warn tightwarn">
+                Under {TARGET_DPI} dpi — acceptable viewed from 2 m+, not for close-up detail.
+              </div>}
+
+              <div className="seg tight">
+                {(['cover', 'contain', 'stretch'] as FitMode[]).map((f) => (
+                  <button key={f} className={art.fit === f ? 'on' : ''}
+                    onClick={() => updateArt(selectedSurface, { fit: f })}>{f}</button>
+                ))}
+              </div>
+
+              <label>Scale <b>{art.scale.toFixed(2)}×</b>
+                <input type="range" min={0.5} max={2.5} step={0.01} value={art.scale}
+                  onChange={(e) => updateArt(selectedSurface, { scale: +e.target.value })} />
+              </label>
+              <label>Nudge across
+                <input type="range" min={-1} max={1} step={0.02} value={art.offsetX}
+                  onChange={(e) => updateArt(selectedSurface, { offsetX: +e.target.value })} />
+              </label>
+              <label>Nudge up / down
+                <input type="range" min={-1} max={1} step={0.02} value={art.offsetY}
+                  onChange={(e) => updateArt(selectedSurface, { offsetY: +e.target.value })} />
+              </label>
+              {art.fit === 'contain' && (
+                <label>Letterbox colour
+                  <input type="color" value={art.bg}
+                    onChange={(e) => updateArt(selectedSurface, { bg: e.target.value })} />
+                </label>
+              )}
+
+              <div className="itemfoot">
+                <button className="mini" onClick={() => updateArt(selectedSurface, {
+                  rotation: ((art.rotation + 90) % 360) as 0 | 90 | 180 | 270,
+                })}>Rotate 90°</button>
+                <button className="mini" onClick={() => updateArt(selectedSurface, {
+                  scale: 1, offsetX: 0, offsetY: 0, rotation: 0,
+                })}>Reset fit</button>
+                <button className="mini danger"
+                  onClick={() => { clearArt(selectedSurface); onPickSurface(null); }}>Clear</button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {Object.keys(artworks).length > 0 && (
+          <>
+            <div className="note">{Object.keys(artworks).length} surface(s) with artwork</div>
+            <div className="chips">
+              {Object.keys(artworks).map((id) => (
+                <button key={id}
+                  className={`chip${selectedSurface === id ? ' on' : ''}`}
+                  onClick={() => onPickSurface(id)}>{surfaceLabel(id)}</button>
+              ))}
+            </div>
+          </>
         )}
       </section>
 

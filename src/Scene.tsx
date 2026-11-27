@@ -9,6 +9,7 @@ import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, spotlights,
 } from './booth';
 import type { Config, EdgeId, Placement, Tv, WallId } from './types';
+import type { SurfaceId } from './artwork';
 import { makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -18,7 +19,81 @@ const PANEL_MAT = { color: '#f4f4f1', roughness: 0.92, metalness: 0.0 };
 // Structure
 // ---------------------------------------------------------------------------
 
-function Walls({ cfg }: { cfg: Config }) {
+// ---------------------------------------------------------------------------
+// Surface helpers: every printable face is a tagged plane so it can be
+// raycast as a drop target, highlighted during a drag, and given its own
+// artwork independently of its neighbours.
+// ---------------------------------------------------------------------------
+
+export interface SurfaceCtx {
+  tex: Record<SurfaceId, THREE.Texture>;
+  hover: SurfaceId | null;
+  selected: SurfaceId | null;
+  onPick: (id: SurfaceId) => void;
+  safeArea: boolean;
+}
+
+/** Dashed inset showing how much of the face the frame covers. */
+function SafeArea({ w, h, inset }: { w: number; h: number; inset: number }) {
+  const line = useMemo(() => {
+    const x = Math.max(0.01, w / 2 - inset), y = Math.max(0.01, h / 2 - inset);
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-x, -y, 0), new THREE.Vector3(x, -y, 0),
+      new THREE.Vector3(x, y, 0), new THREE.Vector3(-x, y, 0),
+    ]);
+    const mat = new THREE.LineDashedMaterial({
+      color: '#ff4d4d', dashSize: 0.035, gapSize: 0.025,
+      transparent: true, opacity: 0.95, depthTest: false,
+    });
+    const l = new THREE.LineLoop(geo, mat);
+    l.computeLineDistances();   // dashes are invisible without this
+    l.position.z = 0.005;
+    l.renderOrder = 3;
+    return l;
+  }, [w, h, inset]);
+  return <primitive object={line} />;
+}
+
+/** A printable face: artwork when assigned, otherwise a fallback material. */
+function Surface({
+  id, w, h, ctx, fallback, frameMm = 0, emissiveScreen = false,
+}: {
+  id: SurfaceId; w: number; h: number; ctx: SurfaceCtx;
+  fallback?: THREE.Texture | null; frameMm?: number; emissiveScreen?: boolean;
+}) {
+  const art = ctx.tex[id];
+  const map = art ?? fallback ?? null;
+  const isHover = ctx.hover === id;
+  const isSel = ctx.selected === id;
+  return (
+    <group>
+      <mesh
+        userData={{ surfaceId: id }}
+        onClick={(e) => { e.stopPropagation(); ctx.onPick(id); }}
+      >
+        <planeGeometry args={[w, h]} />
+        {/* The `key` matters: a material that gains or loses a map needs a new
+            shader program, and simply updating the prop leaves the old one
+            compiled -- the texture silently never appears. */}
+        {emissiveScreen
+          ? <meshBasicMaterial key={map ? map.uuid : 'plain'}
+              map={map ?? undefined} color={map ? '#ffffff' : '#101418'} toneMapped={false} />
+          : <meshStandardMaterial key={map ? map.uuid : 'plain'}
+              map={map ?? undefined} color={map ? '#ffffff' : '#f4f4f1'} roughness={0.85} />}
+      </mesh>
+      {(isHover || isSel) && (
+        <mesh position={[0, 0, 0.006]}>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial color={isHover ? '#4da3ff' : '#2f81f7'}
+            transparent opacity={isHover ? 0.34 : 0.14} depthWrite={false} />
+        </mesh>
+      )}
+      {ctx.safeArea && frameMm > 0 && <SafeArea w={w} h={h} inset={frameMm / 1000} />}
+    </group>
+  );
+}
+
+function Walls({ cfg, ctx }: { cfg: Config; ctx: SurfaceCtx }) {
   const { width: W, depth: D } = cfg;
   const walls = wallsFor(cfg.openSides, cfg.mirror);
   return (
@@ -31,10 +106,16 @@ function Walls({ cfg }: { cfg: Config }) {
             {Array.from({ length: n }, (_, i) => {
               const p = wallPoint(w, i + 0.5, W, D);
               return (
-                <mesh key={`p${i}`} position={[p.x, PANEL_ZONE_H / 2, p.z]} rotation={[0, p.rotY, 0]} castShadow receiveShadow>
-                  <boxGeometry args={[PANEL_LEAF, PANEL_ZONE_H, WALL_T]} />
-                  <meshStandardMaterial {...PANEL_MAT} />
-                </mesh>
+                <group key={`p${i}`} position={[p.x, PANEL_ZONE_H / 2, p.z]} rotation={[0, p.rotY, 0]}>
+                  <mesh castShadow receiveShadow>
+                    <boxGeometry args={[PANEL_LEAF, PANEL_ZONE_H, WALL_T]} />
+                    <meshStandardMaterial {...PANEL_MAT} />
+                  </mesh>
+                  <group position={[0, 0, WALL_T / 2 + 0.003]}>
+                    <Surface id={`panel:${w}:${i}`} w={PANEL_LEAF} h={PANEL_ZONE_H}
+                      ctx={ctx} frameMm={15} />
+                  </group>
+                </group>
               );
             })}
             {Array.from({ length: n + 1 }, (_, i) => {
@@ -64,7 +145,7 @@ function Walls({ cfg }: { cfg: Config }) {
   );
 }
 
-function Fascia({ cfg, texFor }: { cfg: Config; texFor: (len: number) => THREE.Texture }) {
+function Fascia({ cfg, texFor, ctx }: { cfg: Config; texFor: (len: number) => THREE.Texture; ctx: SurfaceCtx }) {
   const { width: W, depth: D } = cfg;
   const edges = fasciaEdges(cfg.openSides, cfg.mirror);
   const y = TOTAL_H - FASCIA_H / 2;
@@ -77,10 +158,13 @@ function Fascia({ cfg, texFor }: { cfg: Config; texFor: (len: number) => THREE.T
           e === 'front' ? [0, y, D / 2] : [e === 'left' ? -W / 2 : W / 2, y, 0];
         const rotY = e === 'front' ? 0 : e === 'left' ? -Math.PI / 2 : Math.PI / 2;
         // Each run length gets its own artwork so text is never stretched.
-        const tex = texFor(len);
+        const fid: SurfaceId = `fascia:${e}`;
+        const tex = ctx.tex[fid] ?? texFor(len);
+        const lit = ctx.hover === fid || ctx.selected === fid;
         return (
           <group key={e} position={pos} rotation={[0, rotY, 0]}>
-            <mesh castShadow>
+            <mesh castShadow userData={{ surfaceId: fid }}
+              onClick={(ev) => { ev.stopPropagation(); ctx.onPick(fid); }}>
               <boxGeometry args={[len, FASCIA_H, 0.09]} />
               <meshStandardMaterial attach="material-0" color="#e9e9e6" roughness={0.8} />
               <meshStandardMaterial attach="material-1" color="#e9e9e6" roughness={0.8} />
@@ -98,6 +182,18 @@ function Fascia({ cfg, texFor }: { cfg: Config; texFor: (len: number) => THREE.T
               <boxGeometry args={[len, 0.024, 0.1]} />
               <meshStandardMaterial {...ALU} />
             </mesh>
+            {lit && (
+              <mesh position={[0, 0, 0.055]}>
+                <planeGeometry args={[len, FASCIA_H]} />
+                <meshBasicMaterial color={ctx.hover === fid ? '#4da3ff' : '#2f81f7'}
+                  transparent opacity={ctx.hover === fid ? 0.34 : 0.14} depthWrite={false} />
+              </mesh>
+            )}
+            {ctx.safeArea && (
+              <group position={[0, 0, 0.05]}>
+                <SafeArea w={len} h={FASCIA_H} inset={0.02} />
+              </group>
+            )}
           </group>
         );
       })}
@@ -202,7 +298,7 @@ function Lighting({ cfg }: { cfg: Config }) {
 // Furniture
 // ---------------------------------------------------------------------------
 
-function Counter({ tex }: { tex: THREE.Texture }) {
+function Counter({ tex, id, ctx }: { tex: THREE.Texture; id: SurfaceId; ctx: SurfaceCtx }) {
   return (
     <group>
       <mesh position={[0, COUNTER.h / 2, 0]} castShadow receiveShadow>
@@ -213,10 +309,10 @@ function Counter({ tex }: { tex: THREE.Texture }) {
         <boxGeometry args={[COUNTER.w + 0.06, 0.04, COUNTER.d + 0.06]} />
         <meshStandardMaterial color="#eceff1" roughness={0.35} metalness={0.2} />
       </mesh>
-      <mesh position={[0, COUNTER.faceH / 2 + 0.12, COUNTER.d / 2 + 0.003]}>
-        <planeGeometry args={[COUNTER.faceW, COUNTER.faceH]} />
-        <meshStandardMaterial map={tex} roughness={0.7} />
-      </mesh>
+      <group position={[0, COUNTER.faceH / 2 + 0.12, COUNTER.d / 2 + 0.004]}>
+        <Surface id={id} w={COUNTER.faceW} h={COUNTER.faceH} ctx={ctx}
+          fallback={tex} frameMm={10} />
+      </group>
     </group>
   );
 }
@@ -299,7 +395,7 @@ function Cabinet() {
   );
 }
 
-function Kiosk({ tex }: { tex: THREE.Texture }) {
+function Kiosk({ tex, id, ctx }: { tex: THREE.Texture; id: SurfaceId; ctx: SurfaceCtx }) {
   return (
     <group>
       <mesh position={[0, 0.02, 0]} castShadow>
@@ -314,10 +410,10 @@ function Kiosk({ tex }: { tex: THREE.Texture }) {
         <boxGeometry args={[KIOSK.screenW + 0.04, KIOSK.screenH + 0.04, 0.02]} />
         <meshStandardMaterial color="#111416" roughness={0.3} />
       </mesh>
-      <mesh position={[0, KIOSK.h * 0.62, KIOSK.d / 2 + 0.024]}>
-        <planeGeometry args={[KIOSK.screenW, KIOSK.screenH]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
-      </mesh>
+      <group position={[0, KIOSK.h * 0.62, KIOSK.d / 2 + 0.025]}>
+        <Surface id={id} w={KIOSK.screenW} h={KIOSK.screenH} ctx={ctx}
+          fallback={tex} emissiveScreen />
+      </group>
     </group>
   );
 }
@@ -425,11 +521,17 @@ function Draggable({
 
 export default function Scene({
   cfg, placements, tvs, onMove, setOrbit, selected, onSelect,
+  artTex, hoverSurface, selectedSurface, onPickSurface, showSafeArea,
 }: {
   cfg: Config; placements: Placement[]; tvs: Tv[];
   onMove: (id: string, x: number, z: number) => void;
   setOrbit: (v: boolean) => void;
   selected: string | null; onSelect: (id: string | null) => void;
+  artTex: Record<SurfaceId, THREE.Texture>;
+  hoverSurface: SurfaceId | null;
+  selectedSurface: SurfaceId | null;
+  onPickSurface: (id: SurfaceId) => void;
+  showSafeArea: boolean;
 }) {
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
@@ -460,6 +562,11 @@ export default function Scene({
 
   const { width: W, depth: D } = cfg;
 
+  const ctx: SurfaceCtx = {
+    tex: artTex, hover: hoverSurface, selected: selectedSurface,
+    onPick: onPickSurface, safeArea: showSafeArea,
+  };
+
   return (
     <group>
       {/* hall floor */}
@@ -469,8 +576,8 @@ export default function Scene({
       </mesh>
 
       <Carpet cfg={cfg} />
-      <Walls cfg={cfg} />
-      <Fascia cfg={cfg} texFor={texFor} />
+      <Walls cfg={cfg} ctx={ctx} />
+      <Fascia cfg={cfg} texFor={texFor} ctx={ctx} />
       <Lighting cfg={cfg} />
 
       {tvs.map((t) => {
@@ -490,10 +597,10 @@ export default function Scene({
           onGrab={() => setOrbit(false)} onRelease={() => setOrbit(true)}
           selected={selected === p.id} onSelect={onSelect}
         >
-          {p.type === 'counter' && <Counter tex={counterTex} />}
+          {p.type === 'counter' && <Counter tex={counterTex} id={`counter:${p.id}`} ctx={ctx} />}
           {p.type === 'table' && <SeatingCluster chairs={cfg.chairsPerTable} />}
           {p.type === 'cabinet' && <Cabinet />}
-          {p.type === 'kiosk' && <Kiosk tex={kioskTex} />}
+          {p.type === 'kiosk' && <Kiosk tex={kioskTex} id={`kiosk:${p.id}`} ctx={ctx} />}
           {p.type === 'bin' && <Bin />}
         </Draggable>
       ))}

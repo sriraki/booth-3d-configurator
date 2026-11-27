@@ -34,6 +34,18 @@ fascia to 6 panels / 18 m fascia. Both are cost drivers, so both are reported li
 
 ## Features
 
+### Artwork
+- Drag a PNG or JPG from your desktop straight onto any wall panel, fascia,
+  counter face or kiosk screen; the target highlights under the cursor before
+  you let go
+- Per-surface fit (cover / contain / stretch), scale, nudge and 90-degree rotation
+- Safe-area overlay showing the 40 mm the frame covers, so you can see whether
+  a logo is about to be clipped
+- Effective-dpi readout against the real printed size, warning below 100 dpi
+  and flagging anything under 72 dpi as too soft to print
+- Work auto-saves to the browser, so a reload keeps your artwork
+
+### Layout
 - Auto-layout of counter, seating clusters, cabinet, kiosks and spotlights,
   scaled pro-rata from the 9 sqm reference package
 - Drag any floor item on a snapping grid to override
