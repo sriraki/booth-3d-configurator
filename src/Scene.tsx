@@ -230,9 +230,6 @@ function Neighbour({ w, d, tone, seed }: { w: number; d: number; tone: number; s
 function Hall({ cfg }: { cfg: Config }) {
   const { width: W, depth: D } = cfg;
   const AISLE = 3;
-  const walls = wallsFor(cfg.openSides, cfg.mirror);
-  const hasLeft = walls.includes('left');
-  const hasRight = walls.includes('right');
 
   return (
     <group>
@@ -242,15 +239,9 @@ function Hall({ cfg }: { cfg: Config }) {
         <meshStandardMaterial color="#6d3d3d" roughness={1} />
       </mesh>
 
-      {/* Opposite row, with a deliberate gap directly across from the stall.
-          Without it the front-elevation camera -- which has to stand back far
-          enough to frame the full frontage -- ends up behind that stall and
-          sees nothing but its back. The gap reads as a cross-aisle. */}
-      {[-2, -1, 1, 2].map((i) => (
-        <group key={`opp${i}`} position={[i * (W + 0.3), 0, D / 2 + AISLE + 1.6]}>
-          <Neighbour w={W} d={3.2} tone={i + 2} seed={i + 1} />
-        </group>
-      ))}
+      {/* No opposite row and no side neighbours: the stall is shown standing
+          clear in the hall, so nothing competes with it in a client preview.
+          Only the back-to-back row remains, behind the closed back wall. */}
 
       {/* back-to-back row behind the stall */}
       {[-1, 0, 1].map((i) => (
@@ -259,18 +250,6 @@ function Hall({ cfg }: { cfg: Config }) {
           <Neighbour w={W} d={3.2} tone={i + 4} seed={i + 3} />
         </group>
       ))}
-
-      {/* immediate neighbours, only where this stall is actually walled in */}
-      {hasLeft && (
-        <group position={[-W / 2 - 1.6, 0, 0]}>
-          <Neighbour w={3} d={D} tone={1} seed={2} />
-        </group>
-      )}
-      {hasRight && (
-        <group position={[W / 2 + 1.6, 0, 0]}>
-          <Neighbour w={3} d={D} tone={3} seed={4} />
-        </group>
-      )}
 
       {/* hall ceiling and a few truss runs well above the stalls */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 7.5, 0]}>
