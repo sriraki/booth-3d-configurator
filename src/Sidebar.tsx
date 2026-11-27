@@ -21,6 +21,8 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 export function Controls({
   cfg, set, tvs, setTvs, placements, setPlacements, onReset, view, setView,
   addItem, removeItem, countOf,
+  selectedItem, onRotate, removeById, duplicateById, onSelectItem,
+  rotateMode, setRotateMode,
   tvMedia, updateTvMedia, clearTvMedia, setAllPlaying, assignTvMedia,
   artworks, selectedSurface, onPickSurface, updateArt, clearArt,
   showSafeArea, setShowSafeArea, assign,
@@ -35,6 +37,13 @@ export function Controls({
   clearTvMedia: (id: string) => void;
   setAllPlaying: (v: boolean) => void;
   assignTvMedia: (id: string, files: File[]) => void;
+  selectedItem: Placement | null;
+  rotateMode: boolean;
+  setRotateMode: (v: boolean) => void;
+  onRotate: (id: string, rotY: number) => void;
+  removeById: (id: string) => void;
+  duplicateById: (id: string) => void;
+  onSelectItem: (id: string | null) => void;
   addItem: (t: ItemType) => void;
   removeItem: (t: ItemType) => void;
   countOf: (t: ItemType) => number;
@@ -219,6 +228,52 @@ export function Controls({
         })}
       </section>
 
+      {selectedItem && (() => {
+        const deg = Math.round(((selectedItem.rotY * 180) / Math.PI + 360) % 360);
+        const setDeg = (d: number) => onRotate(selectedItem.id, (d * Math.PI) / 180);
+        return (
+          <section>
+            <h2>
+              Selected item
+              <button className="mini" onClick={() => onSelectItem(null)}>Deselect</button>
+            </h2>
+            <div className="item">
+              <div className="selhead">{ITEM_LABEL[selectedItem.type]}</div>
+              <div className="tiny">
+                {selectedItem.x.toFixed(2)} m across · {selectedItem.z.toFixed(2)} m deep
+              </div>
+
+              <button className={`full${rotateMode ? ' on' : ' ghost'}`}
+                onClick={() => setRotateMode(!rotateMode)}>
+                {rotateMode ? '✓ Rotate mode — drag to turn' : 'Rotate by dragging'}
+              </button>
+
+              <label>Rotation: <b>{deg}°</b>
+                <input type="range" min={0} max={355} step={5} value={deg}
+                  onChange={(e) => setDeg(+e.target.value)} />
+              </label>
+
+              <div className="seg tight">
+                <button onClick={() => setDeg((deg + 315) % 360)}>↺ 45°</button>
+                <button onClick={() => setDeg((deg + 45) % 360)}>45° ↻</button>
+              </div>
+              <div className="seg tight">
+                {[0, 90, 180, 270].map((d) => (
+                  <button key={d} className={deg === d ? 'on' : ''} onClick={() => setDeg(d)}>
+                    {d}°
+                  </button>
+                ))}
+              </div>
+
+              <div className="itemfoot">
+                <button className="mini" onClick={() => duplicateById(selectedItem.id)}>Duplicate</button>
+                <button className="mini danger" onClick={() => removeById(selectedItem.id)}>Remove this</button>
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+
       <section>
         <h2>Furniture</h2>
         {ITEM_TYPES.map((t) => {
@@ -236,7 +291,10 @@ export function Controls({
             </div>
           );
         })}
-        <div className="note">Set any item to 0 to leave it out. Drag items on the floor to reposition.</div>
+        <div className="note">
+          Set any item to 0 to leave it out. Drag an item to move it;
+          <b> hold Shift and drag</b> to turn it. Click one to select it.
+        </div>
       </section>
 
       <section>

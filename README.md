@@ -56,6 +56,9 @@ fascia to 6 panels / 18 m fascia. Both are cost drivers, so both are reported li
 ### Layout
 - Every furniture type is a count you control: counter, coffee table + chairs,
   cabinet, kiosk and bin can each be taken to zero and put back
+- Select any item to rotate it: a slider, 45-degree nudges and 0/90/180/270
+  snaps, or switch on Rotate mode and drag the item to turn it
+- Duplicate or delete an individual item from the selection panel
 - Auto-layout of counter, seating clusters, cabinet, kiosks and spotlights,
   scaled pro-rata from the 9 sqm reference package
 - Exhibition hall surroundings: neighbouring stalls, aisle carpet and a truss

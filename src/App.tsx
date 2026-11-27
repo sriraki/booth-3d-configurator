@@ -79,6 +79,7 @@ export default function App() {
   const [hoverSurface, setHoverSurface] = useState<SurfaceId | null>(null);
   const [selectedSurface, setSelectedSurface] = useState<SurfaceId | null>(null);
   const [showSafeArea, setShowSafeArea] = useState(false);
+  const [rotateMode, setRotateMode] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
 
@@ -123,6 +124,31 @@ export default function App() {
     });
 
   const countOf = (type: ItemType) => placements.filter((p) => p.type === type).length;
+
+  const onRotate = (id: string, rotY: number) =>
+    setPlacements((ps) => ps.map((p) => (p.id === id ? { ...p, rotY } : p)));
+
+  const removeById = (id: string) =>
+    setPlacements((ps) => {
+      if (selected === id) setSelected(null);
+      return ps.filter((p) => p.id !== id);
+    });
+
+  const duplicateById = (id: string) =>
+    setPlacements((ps) => {
+      const src = ps.find((p) => p.id === id);
+      if (!src) return ps;
+      const copy = {
+        ...src,
+        id: `${src.type}-${Date.now()}`,
+        x: THREE.MathUtils.clamp(src.x + 0.45, -cfg.width / 2 + 0.35, cfg.width / 2 - 0.35),
+        z: THREE.MathUtils.clamp(src.z + 0.45, -cfg.depth / 2 + 0.35, cfg.depth / 2 - 0.35),
+      };
+      setSelected(copy.id);
+      return [...ps, copy];
+    });
+
+  const selectedItem = placements.find((p) => p.id === selected) ?? null;
 
   // --- Artwork textures ---------------------------------------------------
   // Rebuilt only for surfaces whose Artwork object actually changed; editing
@@ -428,6 +454,10 @@ export default function App() {
         placements={placements} setPlacements={setPlacements}
         onReset={reset} view={view} setView={setView}
         addItem={addItem} removeItem={removeItem} countOf={countOf}
+        selectedItem={selectedItem} onRotate={onRotate}
+        rotateMode={rotateMode} setRotateMode={setRotateMode}
+        removeById={removeById} duplicateById={duplicateById}
+        onSelectItem={setSelected}
         tvMedia={tvMedia} updateTvMedia={updateTvMedia}
         clearTvMedia={clearTvMedia} setAllPlaying={setAllPlaying}
         assignTvMedia={assignTvMedia}
@@ -463,7 +493,7 @@ export default function App() {
           <Suspense fallback={null}>
             <Scene
               cfg={cfg} placements={placements} tvs={tvs}
-              onMove={onMove} setOrbit={setOrbit}
+              onMove={onMove} onRotate={onRotate} rotateMode={rotateMode} setOrbit={setOrbit}
               selected={selected} onSelect={setSelected}
               artTex={artTex}
               hoverSurface={hoverSurface}

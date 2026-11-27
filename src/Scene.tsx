@@ -669,18 +669,30 @@ const SNAP = 0.05;
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
 function Draggable({
-  p, cfg, onMove, onGrab, onRelease, selected, onSelect, children,
+  p, cfg, onMove, onRotate, onGrab, onRelease, selected, onSelect,
+  rotateMode, children,
 }: {
   p: Placement; cfg: Config;
+  rotateMode: boolean;
   onMove: (id: string, x: number, z: number) => void;
+  onRotate: (id: string, rotY: number) => void;
   onGrab: () => void; onRelease: () => void;
   selected: boolean; onSelect: (id: string) => void;
   children: React.ReactNode;
 }) {
   const drag = useRef(false);
+  const mode = useRef<'move' | 'rotate'>('move');
+  const spin = useRef(false);
   const off = useRef({ x: 0, z: 0 });
   const hit = useMemo(() => new THREE.Vector3(), []);
   const [hover, setHover] = useState(false);
+
+  const STEP = Math.PI / 36;   // 5 degree detents
+  const aimAt = (e: any) => {
+    if (!e.ray.intersectPlane(FLOOR, hit)) return;
+    const a = Math.atan2(hit.x - p.x, hit.z - p.z);
+    onRotate(p.id, Math.round(a / STEP) * STEP);
+  };
 
   const limX = cfg.width / 2 - 0.35;
   const limZ = cfg.depth / 2 - 0.35;
@@ -689,22 +701,29 @@ function Draggable({
     <group
       position={[p.x, 0, p.z]}
       rotation={[0, p.rotY, 0]}
-      onPointerOver={(e) => { e.stopPropagation(); setHover(true); document.body.style.cursor = 'grab'; }}
+      onPointerOver={(e) => {
+        e.stopPropagation(); setHover(true);
+        document.body.style.cursor = rotateMode ? 'alias' : 'grab';
+      }}
       onPointerOut={() => { setHover(false); document.body.style.cursor = 'auto'; }}
       onPointerDown={(e) => {
         e.stopPropagation();
         (e.target as any).setPointerCapture?.(e.pointerId);
         e.ray.intersectPlane(FLOOR, hit);
+        // Shift turns the drag into a rotation: the item swings to face the
+        // cursor, which is the gesture people expect for a counter.
+        mode.current = (rotateMode || e.shiftKey) ? 'rotate' : 'move';
         off.current = { x: p.x - hit.x, z: p.z - hit.z };
         drag.current = true;
         onSelect(p.id);
         onGrab();
-        document.body.style.cursor = 'grabbing';
+        document.body.style.cursor = mode.current === 'rotate' ? 'alias' : 'grabbing';
       }}
       onPointerMove={(e) => {
         if (!drag.current) return;
         e.stopPropagation();
         if (!e.ray.intersectPlane(FLOOR, hit)) return;
+        if (mode.current === 'rotate') { aimAt(e); return; }
         const nx = THREE.MathUtils.clamp(snap(hit.x + off.current.x), -limX, limX);
         const nz = THREE.MathUtils.clamp(snap(hit.z + off.current.z), -limZ, limZ);
         onMove(p.id, nx, nz);
@@ -720,9 +739,27 @@ function Draggable({
     >
       {children}
       {(selected || hover) && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
-          <ringGeometry args={[0.52, 0.58, 40]} />
-          <meshBasicMaterial color={selected ? '#2f81f7' : '#8aa6c8'} transparent opacity={0.85} />
+        <>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
+            <ringGeometry args={[0.52, 0.58, 40]} />
+            <meshBasicMaterial color={selected ? '#2f81f7' : '#8aa6c8'} transparent opacity={0.85} />
+          </mesh>
+          {/* which way the item faces, so a rotation is readable */}
+          <mesh position={[0, 0.014, 0.72]} rotation={[-Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[0.1, 0.22, 3]} />
+            <meshBasicMaterial color={selected ? '#2f81f7' : '#8aa6c8'} transparent opacity={0.9} />
+          </mesh>
+        </>
+      )}
+
+      {/* Passive indicator only. An interactive ring competing with the item
+          for the raycast proved unreliable, so rotation rides the same drag
+          path as moving, switched by an explicit mode. */}
+      {selected && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} raycast={() => null}>
+          <ringGeometry args={[0.64, 0.84, 48]} />
+          <meshBasicMaterial color={rotateMode ? '#f2b705' : '#2f81f7'} transparent
+            opacity={rotateMode ? 0.5 : 0.18} side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
       )}
     </group>
@@ -732,11 +769,13 @@ function Draggable({
 // ---------------------------------------------------------------------------
 
 export default function Scene({
-  cfg, placements, tvs, onMove, setOrbit, selected, onSelect,
+  cfg, placements, tvs, onMove, onRotate, setOrbit, selected, onSelect, rotateMode,
   artTex, hoverSurface, selectedSurface, onPickSurface, showSafeArea, view, tvMedia,
 }: {
   cfg: Config; placements: Placement[]; tvs: Tv[];
   onMove: (id: string, x: number, z: number) => void;
+  onRotate: (id: string, rotY: number) => void;
+  rotateMode: boolean;
   setOrbit: (v: boolean) => void;
   selected: string | null; onSelect: (id: string | null) => void;
   artTex: Record<SurfaceId, THREE.Texture>;
@@ -810,7 +849,7 @@ export default function Scene({
 
       {placements.map((p) => (
         <Draggable
-          key={p.id} p={p} cfg={cfg} onMove={onMove}
+          key={p.id} p={p} cfg={cfg} onMove={onMove} onRotate={onRotate} rotateMode={rotateMode}
           onGrab={() => setOrbit(false)} onRelease={() => setOrbit(true)}
           selected={selected === p.id} onSelect={onSelect}
         >
