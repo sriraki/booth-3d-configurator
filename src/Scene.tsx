@@ -3,12 +3,12 @@ import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import {
   PANEL_LEAF, PANEL_ZONE_H, POST_W, TOTAL_H, FASCIA_H, FASCIA_PRINT_H, WALL_T,
-  COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_CENTRE_H, TV_DEPTH,
-  AISLE_W,
+  COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_DEPTH, tvCentreH,
+  AISLE_W, STEP, STEP_HEIGHTS, STEP_LABEL_H, STEP_TOPICS,
 } from './constants';
 import {
-  wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, spotlights,
-  stallsOf, stallCfg, stallOf, stallPose, arrangementBounds, pairDepth,
+  wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, edgePoint,
+  spotlights, stallsOf, stallCfg, stallOf, stallPose, arrangementBounds, pairDepth,
 } from './booth';
 import type { Config, EdgeId, Placement, StallId, Tv, TvMedia, WallId } from './types';
 import {
@@ -16,7 +16,7 @@ import {
 } from './artwork';
 import {
   makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture,
-  makeTileTexture,
+  makeTileTexture, makeStepLabelTexture,
 } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -323,11 +323,82 @@ function Hall({ cfg, view }: { cfg: Config; view: string }) {
               <circleGeometry args={[0.36, 20]} />
               <meshBasicMaterial color="#ffe9c4" toneMapped={false} />
             </mesh>
-            <pointLight position={[0, -0.4, 0]} intensity={70} distance={34}
+            {/* Pulled back deliberately: the stalls are meant to be the bright
+                thing in the hall, not the venue lighting. */}
+            <pointLight position={[0, -0.4, 0]} intensity={42} distance={30}
               color="#ffcf8f" />
           </group>
         ))}
       </>}
+    </group>
+  );
+}
+
+/**
+ * The stall's own trim lighting: warm strips up each upright, a wash under
+ * the fascia and a lit plinth along every open edge. Together with the
+ * fascia spots this is what makes a stall read brighter than the hall it
+ * stands in, which is the whole point of stand lighting.
+ */
+function TrimLight({ cfg }: { cfg: Config }) {
+  const { width: W, depth: D } = cfg;
+  const edges = fasciaEdges(cfg.openSides, cfg.mirror);
+  const corners: [number, number][] = [
+    [-W / 2, -D / 2], [W / 2, -D / 2], [-W / 2, D / 2], [W / 2, D / 2],
+  ];
+
+  return (
+    <group>
+      {/* vertical strips on the corner uprights */}
+      {corners.map(([x, z], i) => (
+        <group key={`u${i}`} position={[x, 0, z]}>
+          {[0, 1].map((f) => (
+            <mesh key={f} position={[f ? Math.sign(x) * 0.026 : 0, PANEL_ZONE_H / 2,
+              f ? 0 : Math.sign(z) * 0.026]}
+              rotation={[0, f ? Math.PI / 2 * Math.sign(x) : 0, 0]}>
+              <planeGeometry args={[0.035, PANEL_ZONE_H - 0.1]} />
+              <meshBasicMaterial color="#ffdfae" toneMapped={false} side={THREE.DoubleSide} />
+            </mesh>
+          ))}
+          <pointLight position={[0, 1.5, 0]} intensity={2.4} distance={3.4} color="#ffd9a0" />
+        </group>
+      ))}
+
+      {/* lit plinth along each open edge, and a soft uplight off it */}
+      {edges.map((e) => {
+        const len = edgeLength(e, W, D);
+        const p = edgePoint(e, len / 2, W, D);
+        return (
+          <group key={`p${e}`} position={[p.x, 0, p.z]} rotation={[0, p.rotY, 0]}>
+            <mesh position={[0, 0.035, 0.015]}>
+              <planeGeometry args={[len - 0.1, 0.05]} />
+              <meshBasicMaterial color="#ffe3b8" toneMapped={false} />
+            </mesh>
+            {/* under-fascia wash, aimed into the stall */}
+            <mesh position={[0, PANEL_ZONE_H - 0.02, 0.06]} rotation={[Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[len - 0.2, 0.09]} />
+              <meshBasicMaterial color="#ffe9c6" toneMapped={false} side={THREE.DoubleSide} />
+            </mesh>
+            {/* A rectAreaLight would be the right tool, but it emits nothing
+                until RectAreaLightUniformsLib is initialised; points along the
+                run give the same wash with no setup. */}
+            {(() => {
+              const n = Math.max(2, Math.round(len / 1.5));
+              const run = len - 0.2;
+              return Array.from({ length: n }, (_, k) => (
+                <pointLight key={k} intensity={6} distance={3.6} color="#ffe2b4"
+                  position={[((k + 0.5) / n) * run - run / 2, PANEL_ZONE_H - 0.12, -0.28]} />
+              ));
+            })()}
+          </group>
+        );
+      })}
+
+      {/* fills the volume so the interior is lifted, not just its edges */}
+      <pointLight position={[0, 2.05, 0]} intensity={18} distance={Math.max(W, D) * 1.8}
+        color="#ffeacb" />
+      <pointLight position={[0, 1.15, -D / 4]} intensity={10} distance={Math.max(W, D) * 1.2}
+        color="#fff1dc" />
     </group>
   );
 }
@@ -382,7 +453,7 @@ function Spot({ pos, target, shadow, beam }: {
         </mesh>
         <mesh position={[0, -0.125, 0]}>
           <cylinderGeometry args={[0.042, 0.042, 0.012, 16]} />
-          <meshStandardMaterial color="#fff6e0" emissive="#ffd9a0" emissiveIntensity={2.2} />
+          <meshStandardMaterial color="#fff8ea" emissive="#ffd9a0" emissiveIntensity={3.4} />
         </mesh>
         {beam && (
           <mesh position={[0, -dist / 2, 0]}>
@@ -394,11 +465,11 @@ function Spot({ pos, target, shadow, beam }: {
       <spotLight
         ref={light}
         position={pos}
-        angle={0.52}
-        penumbra={0.65}
-        distance={14}
-        intensity={11}
-        color="#fff0d8"
+        angle={0.56}
+        penumbra={0.6}
+        distance={16}
+        intensity={26}
+        color="#fff1da"
         castShadow={shadow}
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
@@ -416,12 +487,12 @@ function GlobalLight({ cfg }: { cfg: Config }) {
     <>
       {/* The fill stays close to neutral so white tiles read as white; the
           warmth comes from the high bays overhead, which pool on the floor. */}
-      <ambientLight intensity={cfg.ambient * (warm ? 0.7 : 0.55)}
+      <ambientLight intensity={cfg.ambient * (warm ? 0.42 : 0.55)}
         color={warm ? '#fff6ec' : '#ffffff'} />
       <hemisphereLight
         args={[warm ? '#eef2fb' : '#eef3ff', warm ? '#ccc0ab' : '#8a8578',
-          cfg.ambient * (warm ? 0.8 : 0.5)]} />
-      <directionalLight position={[8, 13, 7]} intensity={cfg.ambient * 0.55}
+          cfg.ambient * (warm ? 0.5 : 0.5)]} />
+      <directionalLight position={[8, 13, 7]} intensity={cfg.ambient * (warm ? 0.3 : 0.55)}
         color={warm ? '#fff6ea' : '#ffffff'} castShadow
         shadow-mapSize-width={2048} shadow-mapSize-height={2048}
         shadow-camera-left={-20} shadow-camera-right={20}
@@ -514,6 +585,183 @@ function SeatingCluster({ chairs }: { chairs: number }) {
           </group>
         );
       })}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Project display steps: a staircase of three 4 ft x 2 ft platforms with a
+// working model on each, per the client's mockup. Built back to front so
+// every riser face, and so every caption, is readable from the aisle.
+// ---------------------------------------------------------------------------
+
+const DARK_JOINT = { color: '#2a2d31', metalness: 0.55, roughness: 0.42 };
+
+/** Articulated arm, folded into a display pose. */
+function RobotArm() {
+  return (
+    <group>
+      <mesh position={[0, 0.02, 0]} castShadow>
+        <cylinderGeometry args={[0.1, 0.11, 0.04, 24]} />
+        <meshStandardMaterial {...DARK_JOINT} />
+      </mesh>
+      <mesh position={[0, 0.1, 0]} castShadow>
+        <cylinderGeometry args={[0.052, 0.058, 0.12, 20]} />
+        <meshStandardMaterial color="#f2a81d" metalness={0.25} roughness={0.45} />
+      </mesh>
+      <mesh position={[0, 0.17, 0]}>
+        <sphereGeometry args={[0.055, 18, 14]} />
+        <meshStandardMaterial {...DARK_JOINT} />
+      </mesh>
+      {/* upper arm, swept forward */}
+      <group position={[0, 0.17, 0]} rotation={[0.72, 0, 0]}>
+        <mesh position={[0, 0.11, 0]} castShadow>
+          <boxGeometry args={[0.062, 0.23, 0.052]} />
+          <meshStandardMaterial color="#f2a81d" metalness={0.25} roughness={0.45} />
+        </mesh>
+        <mesh position={[0, 0.23, 0]}>
+          <sphereGeometry args={[0.042, 16, 12]} />
+          <meshStandardMaterial {...DARK_JOINT} />
+        </mesh>
+        {/* forearm, folded back */}
+        <group position={[0, 0.23, 0]} rotation={[-1.35, 0, 0]}>
+          <mesh position={[0, 0.095, 0]} castShadow>
+            <boxGeometry args={[0.05, 0.2, 0.044]} />
+            <meshStandardMaterial color="#f2a81d" metalness={0.25} roughness={0.45} />
+          </mesh>
+          <mesh position={[0, 0.2, 0]}>
+            <cylinderGeometry args={[0.028, 0.028, 0.035, 14]} />
+            <meshStandardMaterial {...DARK_JOINT} />
+          </mesh>
+          {[-1, 1].map((e) => (
+            <mesh key={e} position={[e * 0.022, 0.235, 0]}>
+              <boxGeometry args={[0.012, 0.05, 0.03]} />
+              <meshStandardMaterial {...DARK_JOINT} />
+            </mesh>
+          ))}
+        </group>
+      </group>
+    </group>
+  );
+}
+
+/** Rolling EV chassis: battery pack, motor and wheels on an open frame. */
+function EvChassis() {
+  const wheel = (x: number, z: number) => (
+    <mesh key={`${x}${z}`} position={[x, 0.047, z]} rotation={[0, 0, Math.PI / 2]} castShadow>
+      <cylinderGeometry args={[0.047, 0.047, 0.032, 20]} />
+      <meshStandardMaterial color="#1c1e21" roughness={0.85} />
+    </mesh>
+  );
+  return (
+    <group>
+      <mesh position={[0, 0.072, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.46, 0.018, 0.24]} />
+        <meshStandardMaterial color="#8c9299" metalness={0.65} roughness={0.38} />
+      </mesh>
+      {[-0.17, 0.17].flatMap((x) => [-0.1, 0.1].map((z) => wheel(x, z)))}
+      {/* battery pack */}
+      <mesh position={[0, 0.098, 0]} castShadow>
+        <boxGeometry args={[0.27, 0.04, 0.17]} />
+        <meshStandardMaterial color="#2f6fd0" metalness={0.3} roughness={0.42} />
+      </mesh>
+      {[-0.06, 0, 0.06].map((z) => (
+        <mesh key={z} position={[0, 0.119, z]}>
+          <boxGeometry args={[0.25, 0.004, 0.012]} />
+          <meshStandardMaterial color="#9ec6ff" emissive="#2f6fd0" emissiveIntensity={0.4} />
+        </mesh>
+      ))}
+      {/* drive motor */}
+      <mesh position={[0.185, 0.095, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+        <cylinderGeometry args={[0.032, 0.032, 0.07, 18]} />
+        <meshStandardMaterial color="#d8dde2" metalness={0.7} roughness={0.3} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Smart-agriculture plot: a planted tray under a tilted solar panel. */
+function SolarFarm() {
+  return (
+    <group>
+      {/* planting tray */}
+      <mesh position={[-0.08, 0.025, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.3, 0.05, 0.21]} />
+        <meshStandardMaterial color="#6b5540" roughness={0.95} />
+      </mesh>
+      <mesh position={[-0.08, 0.052, 0]}>
+        <boxGeometry args={[0.28, 0.008, 0.19]} />
+        <meshStandardMaterial color="#3b2d1f" roughness={1} />
+      </mesh>
+      {[-0.11, -0.04, 0.03].flatMap((x) => [-0.06, 0, 0.06].map((z) => (
+        <group key={`${x}${z}`} position={[x - 0.03, 0.06, z]}>
+          <mesh position={[0, 0.028, 0]}>
+            <cylinderGeometry args={[0.003, 0.004, 0.055, 6]} />
+            <meshStandardMaterial color="#3f7a35" roughness={0.9} />
+          </mesh>
+          {[0, 2.1, 4.2].map((a) => (
+            <mesh key={a} position={[Math.sin(a) * 0.018, 0.05, Math.cos(a) * 0.018]}
+              rotation={[0.5, a, 0]}>
+              <coneGeometry args={[0.014, 0.038, 5]} />
+              <meshStandardMaterial color="#56a349" roughness={0.85} />
+            </mesh>
+          ))}
+        </group>
+      )))}
+      {/* solar array on a mast */}
+      <group position={[0.16, 0, 0]}>
+        <mesh position={[0, 0.06, 0]} castShadow>
+          <cylinderGeometry args={[0.008, 0.01, 0.12, 10]} />
+          <meshStandardMaterial color="#b9bfc5" metalness={0.6} roughness={0.4} />
+        </mesh>
+        <group position={[0, 0.125, 0]} rotation={[-0.42, 0, 0]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.23, 0.009, 0.15]} />
+            <meshStandardMaterial color="#20406e" metalness={0.35} roughness={0.25} />
+          </mesh>
+          {[-0.057, 0, 0.057].map((x) => (
+            <mesh key={x} position={[x, 0.006, 0]}>
+              <boxGeometry args={[0.003, 0.001, 0.14]} />
+              <meshStandardMaterial color="#9fb6d4" />
+            </mesh>
+          ))}
+        </group>
+      </group>
+    </group>
+  );
+}
+
+function DisplaySteps({ labels }: { labels: THREE.Texture[] }) {
+  return (
+    <group>
+      {STEP_HEIGHTS.map((h, i) => (
+        <group key={i} position={[0, 0, STEP.d * (i - 1)]}>
+          <mesh position={[0, h / 2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[STEP.w, h, STEP.d]} />
+            <meshStandardMaterial color="#f6f6f4" roughness={0.62} />
+          </mesh>
+          {/* worktop lip */}
+          <mesh position={[0, h + 0.012, 0]} castShadow>
+            <boxGeometry args={[STEP.w + 0.05, 0.024, STEP.d + 0.05]} />
+            <meshStandardMaterial color="#ffffff" roughness={0.3} metalness={0.06} />
+          </mesh>
+          {/* caption plate on the riser */}
+          <mesh position={[0, h - 0.145, STEP.d / 2 + 0.006]}>
+            <planeGeometry args={[STEP.w * 0.84, STEP_LABEL_H]} />
+            <meshStandardMaterial map={labels[i]} roughness={0.5} />
+          </mesh>
+          {/* warm strip washing the floor under the front lip */}
+          <mesh position={[0, 0.03, STEP.d / 2 + 0.004]}>
+            <planeGeometry args={[STEP.w * 0.94, 0.02]} />
+            <meshBasicMaterial color="#ffd9a0" toneMapped={false} />
+          </mesh>
+          <group position={[0, h + 0.024, 0]}>
+            {i === 0 && <RobotArm />}
+            {i === 1 && <EvChassis />}
+            {i === 2 && <SolarFarm />}
+          </group>
+        </group>
+      ))}
     </group>
   );
 }
@@ -870,6 +1118,7 @@ function Stall({
     () => makeCounterTexture(name, logoImg, cfg.fasciaTextColor),
     [name, logoImg, cfg.fasciaTextColor]);
   const kioskTex = useMemo(() => makeKioskTexture(name, '#4da3ff'), [name]);
+  const stepLabels = useMemo(() => STEP_TOPICS.map(makeStepLabelTexture), []);
 
   const { width: W, depth: D } = cfg;
 
@@ -885,11 +1134,14 @@ function Stall({
       <Walls cfg={cfg} ctx={ctx} />
       <Fascia cfg={cfg} texFor={texFor} ctx={ctx} />
       <Lighting cfg={cfg} />
+      <TrimLight cfg={cfg} />
 
       {tvs.map((t) => {
         const p = wallPoint(t.wall, t.t, W, D);
         return (
-          <group key={t.id} position={[p.x, TV_CENTRE_H, p.z]} rotation={[0, p.rotY, 0]}>
+          <group key={t.id}
+            position={[p.x, tvCentreH(TV_SIZES[t.sizeIdx].h, PANEL_ZONE_H), p.z]}
+            rotation={[0, p.rotY, 0]}>
             <group position={[0, 0, WALL_T / 2 + TV_DEPTH / 2 + 0.02]}>
               <TvUnit id={`tv:${t.id}`} sizeIdx={t.sizeIdx}
                 media={tvMedia[t.id]} ctx={ctx} />
@@ -909,6 +1161,7 @@ function Stall({
           {p.type === 'table' && <SeatingCluster chairs={cfg.chairsPerTable} />}
           {p.type === 'cabinet' && <Cabinet />}
           {p.type === 'kiosk' && <Kiosk tex={kioskTex} id={`kiosk:${p.id}`} ctx={ctx} />}
+          {p.type === 'steps' && <DisplaySteps labels={stepLabels} />}
           {p.type === 'bin' && <Bin />}
         </Draggable>
       ))}

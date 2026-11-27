@@ -1,6 +1,7 @@
 export type WallId = 'back' | 'left' | 'right';
 export type EdgeId = 'front' | 'left' | 'right';
-export type ItemType = 'counter' | 'table' | 'cabinet' | 'kiosk' | 'bin';
+export type ItemType =
+  'counter' | 'table' | 'cabinet' | 'kiosk' | 'bin' | 'steps';
 
 /** 'a' and 'b' share one back wall; 'c' stands diagonally across the aisle. */
 export type StallId = 'a' | 'b' | 'c';
@@ -14,8 +15,12 @@ export interface Placement {
   rotY: number;
 }
 
-/** Starting furniture for one stall, overriding the size-based defaults. */
-export type Kit = Partial<Record<ItemType, number>>;
+/** Starting fit-out for one stall, overriding the size-based defaults. */
+export type Kit = Partial<Record<ItemType, number>> & {
+  tvs?: number;
+  /** Index into TV_SIZES: this stall's default screen. */
+  tvSizeIdx?: number;
+};
 
 export interface Tv {
   id: string;

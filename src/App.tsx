@@ -9,7 +9,7 @@ import {
   anchorFor, nextTvSlot, wallLength, stallCfg, stallLabel, stallOf, stallsOf,
   arrangementBounds, STALL_ROLE,
 } from './booth';
-import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES, AISLE_W } from './constants';
+import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES, AISLE_W, LED_8X6_IDX } from './constants';
 import type { Config, ItemType, Placement, StallId, Tv, TvMedia } from './types';
 import {
   DEFAULT_ARTWORK, buildArtworkTexture, loadImage, surfacePrint, surfaceLabel,
@@ -21,7 +21,7 @@ import * as store from './storage';
  *  sides, the furniture kit, seating. A session saved against an older design
  *  would otherwise pin defaults the design has since moved on from, so it
  *  starts from the new one. Artwork and screen media are kept either way. */
-const CFG_REV = 2;
+const CFG_REV = 4;
 
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
@@ -33,7 +33,9 @@ const INITIAL: Config = {
   thirdOpenSides: 2,
   thirdMirror: true,          // opens its front and its left
   kit: {
-    a: { table: 1, kiosk: 0 },   // DTE: one coffee table, no kiosk
+    // DTE is built out to the client's mockup: three project display steps
+    // and an 8 x 6 ft LED wall on the back panel.
+    a: { table: 1, kiosk: 0, steps: 1, tvs: 1, tvSizeIdx: LED_8X6_IDX },
     b: { table: 0 },             // CCE: no coffee table
     c: { table: 1, kiosk: 0 },   // DIE: one coffee table, no kiosk
   },

@@ -168,3 +168,41 @@ export function makeTileTexture(tone = '#fcfcfb', grout = '#d2d0cb') {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
+
+/** Navy caption plate on a display step's riser, as in the client's mockup. */
+export function makeStepLabelTexture(text: string) {
+  return canvasTexture(1.0, 0.22, (ctx, w, h) => {
+    ctx.fillStyle = '#13306d';
+    ctx.fillRect(0, 0, w, h);
+    // a lighter inner field so the plate reads as a mounted sign, not paint
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = Math.max(1, h * 0.018);
+    ctx.strokeRect(h * 0.1, h * 0.1, w - h * 0.2, h - h * 0.2);
+
+    const pad = h * 0.26;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    // Two lines when it will not fit on one, split near the middle word break.
+    const size = fitText(ctx, text, w - pad * 2, h * 0.46);
+    if (size >= h * 0.3) {
+      ctx.fillText(text, pad, h / 2);
+      return;
+    }
+    const words = text.split(' ');
+    let best = 1;
+    for (let i = 1; i < words.length; i++) {
+      if (Math.abs(i - words.length / 2) < Math.abs(best - words.length / 2)) best = i;
+    }
+    const l1 = words.slice(0, best).join(' ');
+    const l2 = words.slice(best).join(' ');
+    const s2 = Math.min(
+      fitText(ctx, l1, w - pad * 2, h * 0.4),
+      fitText(ctx, l2, w - pad * 2, h * 0.4),
+    );
+    ctx.font = `700 ${s2}px Helvetica, Arial, sans-serif`;
+    ctx.fillText(l1, pad, h * 0.33);
+    ctx.fillText(l2, pad, h * 0.68);
+  });
+}

@@ -37,15 +37,45 @@ export const TV_SIZES: TvSize[] = [
   { label: '65"', w: 1.453, h: 0.840 },
   { label: '75"', w: 1.676, h: 0.969 },
   { label: '86"', w: 1.927, h: 1.106 },
+  // LED walls, quoted the way a vendor does: width x height, not diagonal.
+  { label: '8 × 4.5 ft LED', w: 2.438, h: 1.372 },
+  { label: '8 × 6 ft LED', w: 2.438, h: 1.829 },
+  { label: '10 × 6 ft LED', w: 3.048, h: 1.829 },
 ];
+
+export const LED_8X6_IDX = TV_SIZES.findIndex((t) => t.label === '8 × 6 ft LED');
+
 export const TV_DEFAULT_IDX = 3;   // 55"
 export const TV_CENTRE_H = 1.4;    // standing eye line
+
+/**
+ * Mounting height for a screen of height `h`. A 6 ft LED wall is most of a
+ * 2200 mm panel zone, so a fixed centre line would push it through the fascia
+ * or into the floor; this drops it only as far as it has to.
+ */
+export const tvCentreH = (h: number, zoneH: number) =>
+  Math.min(Math.max(TV_CENTRE_H, h / 2 + 0.12), zoneH - h / 2 - 0.09);
 export const TV_DEPTH = 0.07;
 
 // Floor area each item effectively consumes, including approach / staff zone
 export const FOOTPRINT: Record<string, number> = {
   counter: 1.5, table: 2.4, cabinet: 0.8, kiosk: 0.74, bin: 0.1,
+  steps: 1.219 * 0.610 * 3,
 };
+
+// --- Project display steps -------------------------------------------------
+// A staircase of three platforms, each 4 ft x 2 ft, descending toward the
+// stall front so every riser face is readable from the aisle.
+
+export const STEP = { w: 1.219, d: 0.610 };          // 4 ft x 2 ft
+export const STEP_HEIGHTS = [1.10, 0.82, 0.54];      // back to front
+export const STEP_LABEL_H = 0.22;
+
+export const STEP_TOPICS = [
+  'ROBOTICS & AUTOMATION',
+  'ELECTRIC VEHICLE TECHNOLOGY',
+  'IoT-BASED SMART AGRICULTURE',
+];
 
 export const SIZES = [3, 4, 5, 6] as const;
 

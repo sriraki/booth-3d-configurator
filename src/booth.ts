@@ -125,13 +125,15 @@ export function edgePoint(e: EdgeId, t: number, W: number, D: number) {
 // Reference pack is 9 sqm: 3 spotlights, 5 chairs, 1 round table,
 // 1 counter, 1 cabinet, 1 socket, 1 bin. Everything scales pro-rata.
 
-export const ITEM_TYPES: ItemType[] = ['counter', 'table', 'cabinet', 'kiosk', 'bin'];
+export const ITEM_TYPES: ItemType[] =
+  ['counter', 'table', 'cabinet', 'kiosk', 'steps', 'bin'];
 
 export const ITEM_LABEL: Record<ItemType, string> = {
   counter: 'Reception counter',
   table: 'Coffee table + chairs',
   cabinet: 'Lockable cabinet',
   kiosk: 'Touchscreen kiosk',
+  steps: 'Project display steps',
   bin: 'Dustbin',
 };
 
@@ -143,6 +145,7 @@ export function defaultCounts(area: number): Record<ItemType, number> & {
     table: area <= 15 ? 1 : area <= 28 ? 2 : 3,
     cabinet: Math.max(1, Math.round(area / 18)),
     kiosk: area <= 12 ? 0 : area <= 28 ? 1 : 2,
+    steps: 0,              // a stand feature, switched on per stall
     bin: 1,
     spotlights: Math.max(3, Math.ceil(area / 3)),
     tvs: area <= 12 ? 1 : area <= 20 ? 1 : area <= 28 ? 2 : 3,
@@ -161,21 +164,34 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
   const clampX = (x: number) => Math.min(W / 2 - 0.4, Math.max(-W / 2 + 0.4, x));
 
   switch (type) {
+    // Each type gets its own zone of the stall, so a default layout never
+    // parks one item inside another: staff kit down the open flank, display
+    // kit down the walled flank, back wall for storage and self-service.
     case 'counter':
-      return { x: clampX(wallSide * (W / 2 - 0.75)), z: clampZ(D / 2 - 0.95 - i * 1.1), rotY: 0 };
+      // Open flank, forward: it faces the aisle rather than backing onto the
+      // wall, where it used to stand directly in front of anything displayed.
+      return { x: clampX(-wallSide * (W / 2 - 0.75)), z: clampZ(D / 2 - 0.95 - i * 1.1), rotY: 0 };
     case 'cabinet':
-      return { x: clampX(wallSide * (W / 2 - 0.55 - i * 1.0)), z: clampZ(-D / 2 + 0.3), rotY: 0 };
+      return { x: clampX(-wallSide * (W / 2 - 0.55 - i * 1.0)), z: clampZ(-D / 2 + 0.3), rotY: 0 };
     case 'table':
-      return { x: clampX(-wallSide * (W * 0.16)), z: clampZ(-D / 2 + 1.3 + i * 1.7), rotY: 0 };
+      return { x: clampX(-wallSide * (W * 0.09)), z: clampZ(D / 2 - 1.0 - i * 1.7), rotY: 0 };
+    case 'steps':
+      // Backed onto the walled flank and run front to back, so the staircase
+      // is read along its length and every caption faces the aisle.
+      return {
+        x: clampX(wallSide * (W / 2 - 0.78)),
+        z: clampZ(-D / 2 + 1.0 + i * 0.3),
+        rotY: 0,
+      };
     case 'kiosk':
       return {
-        x: clampX(-wallSide * (W / 2 - 0.45)),
-        z: clampZ(D / 2 - 0.7 - i * 1.3),
+        x: clampX(wallSide * (W * 0.22 + i * 0.9)),
+        z: clampZ(-D / 2 + 0.55),
         rotY: wallSide * 0.6,
       };
     case 'bin':
     default:
-      return { x: clampX(wallSide * (W / 2 - 0.25)), z: clampZ(D / 2 - 1.7 - i * 0.6), rotY: 0 };
+      return { x: clampX(wallSide * (W / 2 - 0.25)), z: clampZ(D / 2 - 0.4 - i * 0.6), rotY: 0 };
   }
 }
 
@@ -202,10 +218,11 @@ export const autoLayoutAll = (cfg: Config): Placement[] =>
   stallsOf(cfg).flatMap((s) => autoLayout(cfg, s));
 
 export function autoTvs(cfg: Config, stall: StallId = 'a'): Tv[] {
+  const sizeIdx = cfg.kit?.[stall]?.tvSizeIdx ?? TV_DEFAULT_IDX;
+  const c = countsFor(cfg, stall);
   cfg = stallCfg(cfg, stall);
   const { width: W, depth: D } = cfg;
-  const c = defaultCounts(W * D);
-  const size = TV_SIZES[TV_DEFAULT_IDX];
+  const size = TV_SIZES[sizeIdx];
   const walls = wallsFor(cfg.openSides, cfg.mirror);
 
   // A TV blanks every panel it covers. Open stalls have few panels to begin
@@ -225,7 +242,7 @@ export function autoTvs(cfg: Config, stall: StallId = 'a'): Tv[] {
     const n = Math.min(fit, remaining);
     for (let i = 0; i < n; i++) {
       out.push({ id: `${stall}-tv-${out.length}`, stall, wall,
-        t: (len * (i + 1)) / (n + 1), sizeIdx: TV_DEFAULT_IDX });
+        t: (len * (i + 1)) / (n + 1), sizeIdx });
     }
     remaining -= n;
   }
