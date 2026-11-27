@@ -2,8 +2,12 @@ export type WallId = 'back' | 'left' | 'right';
 export type EdgeId = 'front' | 'left' | 'right';
 export type ItemType = 'counter' | 'table' | 'cabinet' | 'kiosk' | 'bin';
 
+/** Two stalls share one back wall: 'a' faces front, 'b' faces the other way. */
+export type StallId = 'a' | 'b';
+
 export interface Placement {
   id: string;
+  stall?: StallId;   // absent on sessions saved before the partner stall
   type: ItemType;
   x: number;
   z: number;
@@ -12,6 +16,7 @@ export interface Placement {
 
 export interface Tv {
   id: string;
+  stall?: StallId;
   wall: WallId;
   t: number;       // distance along the wall, metres from its start
   sizeIdx: number;
@@ -23,6 +28,9 @@ export interface Config {
   openSides: 1 | 2 | 3;
   mirror: boolean;          // flips which side is open on a corner stall
   companyName: string;
+  /** A second stall backed onto this one, opening the opposite way. */
+  partner: boolean;
+  partnerName: string;
   logo: string | null;      // data URL
   carpet: string;
   fasciaColor: string;

@@ -7,9 +7,12 @@ import {
 } from './constants';
 import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, spotlights,
+  stallsOf, stallCfg, stallOf, stallZ, pairDepth,
 } from './booth';
-import type { Config, EdgeId, Placement, Tv, TvMedia, WallId } from './types';
-import { DEFAULT_ARTWORK, buildArtworkTexture, loadImage, type SurfaceId } from './artwork';
+import type { Config, EdgeId, Placement, StallId, Tv, TvMedia, WallId } from './types';
+import {
+  DEFAULT_ARTWORK, buildArtworkTexture, loadImage, nsOf, type SurfaceId,
+} from './artwork';
 import { makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -26,6 +29,8 @@ const PANEL_MAT = { color: '#f4f4f1', roughness: 0.92, metalness: 0.0 };
 // ---------------------------------------------------------------------------
 
 export interface SurfaceCtx {
+  /** Prefix that scopes every id below to one stall of a back-to-back pair. */
+  ns: string;
   tex: Record<SurfaceId, THREE.Texture>;
   hover: SurfaceId | null;
   selected: SurfaceId | null;
@@ -61,15 +66,19 @@ function Surface({
   id: SurfaceId; w: number; h: number; ctx: SurfaceCtx;
   fallback?: THREE.Texture | null; frameMm?: number; emissiveScreen?: boolean;
 }) {
-  const art = ctx.tex[id];
+  // Ids arrive bare from the geometry, which is written for a single stall;
+  // the namespace is what keeps the rear stall's panels separate from the
+  // front one's when the two are identical.
+  const sid = ctx.ns + id;
+  const art = ctx.tex[sid];
   const map = art ?? fallback ?? null;
-  const isHover = ctx.hover === id;
-  const isSel = ctx.selected === id;
+  const isHover = ctx.hover === sid;
+  const isSel = ctx.selected === sid;
   return (
     <group>
       <mesh
-        userData={{ surfaceId: id }}
-        onClick={(e) => { e.stopPropagation(); ctx.onPick(id); }}
+        userData={{ surfaceId: sid }}
+        onClick={(e) => { e.stopPropagation(); ctx.onPick(sid); }}
       >
         <planeGeometry args={[w, h]} />
         {/* The `key` matters: a material that gains or loses a map needs a new
@@ -208,16 +217,21 @@ function Fascia({ cfg, texFor, ctx }: { cfg: Config; texFor: (len: number) => TH
 // ---------------------------------------------------------------------------
 
 function Hall({ cfg }: { cfg: Config }) {
-  const { width: W, depth: D } = cfg;
+  const W = cfg.width;
+  const span = pairDepth(cfg);
   const AISLE = 3;
 
   return (
     <group>
-      {/* aisle carpet running across the open frontage */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.004, D / 2 + AISLE / 2]} receiveShadow>
-        <planeGeometry args={[Math.max(28, W * 5), AISLE]} />
-        <meshStandardMaterial color="#6d3d3d" roughness={1} />
-      </mesh>
+      {/* Aisle carpet across each open frontage. A back-to-back pair faces
+          two aisles, one at either end of the block. */}
+      {(cfg.partner ? [1, -1] : [1]).map((sgn) => (
+        <mesh key={sgn} rotation={[-Math.PI / 2, 0, 0]}
+          position={[0, 0.004, sgn * (span / 2 + AISLE / 2)]} receiveShadow>
+          <planeGeometry args={[Math.max(28, W * 5), AISLE]} />
+          <meshStandardMaterial color="#6d3d3d" roughness={1} />
+        </mesh>
+      ))}
 
       {/* No neighbouring stalls at all: the booth is shown standing clear so
           nothing competes with it in a client preview. Carpet, ceiling, truss
@@ -619,11 +633,16 @@ const FLOOR = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const SNAP = 0.05;
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
+/** Where a stall sits in the world, so a world-space drag can be read back
+ *  into the stall's own coordinates. The rear stall is turned exactly 180
+ *  degrees, which is why one sign flip covers both axes. */
+export interface Frame { zOff: number; flip: boolean }
+
 function Draggable({
-  p, cfg, onMove, onRotate, onGrab, onRelease, selected, onSelect,
+  p, cfg, frame, onMove, onRotate, onGrab, onRelease, selected, onSelect,
   rotateMode, children,
 }: {
-  p: Placement; cfg: Config;
+  p: Placement; cfg: Config; frame: Frame;
   rotateMode: boolean;
   onMove: (id: string, x: number, z: number) => void;
   onRotate: (id: string, rotY: number) => void;
@@ -638,10 +657,14 @@ function Draggable({
   const hit = useMemo(() => new THREE.Vector3(), []);
   const [hover, setHover] = useState(false);
 
+  const sign = frame.flip ? -1 : 1;
+  const local = () => ({ x: sign * hit.x, z: sign * (hit.z - frame.zOff) });
+
   const STEP = Math.PI / 36;   // 5 degree detents
   const aimAt = (e: any) => {
     if (!e.ray.intersectPlane(FLOOR, hit)) return;
-    const a = Math.atan2(hit.x - p.x, hit.z - p.z);
+    const l = local();
+    const a = Math.atan2(l.x - p.x, l.z - p.z);
     onRotate(p.id, Math.round(a / STEP) * STEP);
   };
 
@@ -664,7 +687,8 @@ function Draggable({
         // Shift turns the drag into a rotation: the item swings to face the
         // cursor, which is the gesture people expect for a counter.
         mode.current = (rotateMode || e.shiftKey) ? 'rotate' : 'move';
-        off.current = { x: p.x - hit.x, z: p.z - hit.z };
+        const l0 = local();
+        off.current = { x: p.x - l0.x, z: p.z - l0.z };
         drag.current = true;
         onSelect(p.id);
         onGrab();
@@ -675,8 +699,9 @@ function Draggable({
         e.stopPropagation();
         if (!e.ray.intersectPlane(FLOOR, hit)) return;
         if (mode.current === 'rotate') { aimAt(e); return; }
-        const nx = THREE.MathUtils.clamp(snap(hit.x + off.current.x), -limX, limX);
-        const nz = THREE.MathUtils.clamp(snap(hit.z + off.current.z), -limZ, limZ);
+        const l = local();
+        const nx = THREE.MathUtils.clamp(snap(l.x + off.current.x), -limX, limX);
+        const nz = THREE.MathUtils.clamp(snap(l.z + off.current.z), -limZ, limZ);
         onMove(p.id, nx, nz);
       }}
       onPointerUp={(e) => {
@@ -718,6 +743,96 @@ function Draggable({
 }
 
 // ---------------------------------------------------------------------------
+// One stall. Everything here is written in the stall's own frame -- origin at
+// its floor centre, front edge at +z -- so the same component builds both
+// halves of a back-to-back pair, each inside its own group transform.
+// ---------------------------------------------------------------------------
+
+function Stall({
+  cfg, stall, placements, tvs, logoImg, frame,
+  onMove, onRotate, rotateMode, setOrbit, selected, onSelect,
+  artTex, hoverSurface, selectedSurface, onPickSurface, showSafeArea, tvMedia,
+}: {
+  cfg: Config; stall: StallId; placements: Placement[]; tvs: Tv[];
+  logoImg: HTMLImageElement | null; frame: Frame;
+  onMove: (id: string, x: number, z: number) => void;
+  onRotate: (id: string, rotY: number) => void;
+  rotateMode: boolean;
+  setOrbit: (v: boolean) => void;
+  selected: string | null; onSelect: (id: string | null) => void;
+  artTex: Record<SurfaceId, THREE.Texture>;
+  hoverSurface: SurfaceId | null;
+  selectedSurface: SurfaceId | null;
+  onPickSurface: (id: SurfaceId) => void;
+  showSafeArea: boolean;
+  tvMedia: Record<string, TvMedia>;
+}) {
+  const name = cfg.companyName || 'COMPANY NAME';
+
+  const fasciaTexs = useMemo(() => {
+    const lens = Array.from(new Set(
+      fasciaEdges(cfg.openSides, cfg.mirror).map((e) => edgeLength(e, cfg.width, cfg.depth))));
+    const m = new Map<number, THREE.Texture>();
+    for (const l of lens) {
+      m.set(l, makeFasciaTexture(name, logoImg, l,
+        FASCIA_H, FASCIA_PRINT_H, cfg.fasciaColor, cfg.fasciaTextColor));
+    }
+    return m;
+  }, [name, logoImg, cfg.width, cfg.depth, cfg.openSides, cfg.mirror,
+      cfg.fasciaColor, cfg.fasciaTextColor]);
+  const texFor = (len: number) => fasciaTexs.get(len)!;
+
+  const counterTex = useMemo(
+    () => makeCounterTexture(name, logoImg, cfg.fasciaTextColor),
+    [name, logoImg, cfg.fasciaTextColor]);
+  const kioskTex = useMemo(() => makeKioskTexture(name, '#4da3ff'), [name]);
+
+  const { width: W, depth: D } = cfg;
+
+  const ctx: SurfaceCtx = {
+    ns: nsOf(stall),
+    tex: artTex, hover: hoverSurface, selected: selectedSurface,
+    onPick: onPickSurface, safeArea: showSafeArea,
+  };
+
+  return (
+    <group>
+      <Carpet cfg={cfg} />
+      <Walls cfg={cfg} ctx={ctx} />
+      <Fascia cfg={cfg} texFor={texFor} ctx={ctx} />
+      <Lighting cfg={cfg} />
+
+      {tvs.map((t) => {
+        const p = wallPoint(t.wall, t.t, W, D);
+        return (
+          <group key={t.id} position={[p.x, TV_CENTRE_H, p.z]} rotation={[0, p.rotY, 0]}>
+            <group position={[0, 0, WALL_T / 2 + TV_DEPTH / 2 + 0.02]}>
+              <TvUnit id={`tv:${t.id}`} sizeIdx={t.sizeIdx}
+                media={tvMedia[t.id]} ctx={ctx} />
+            </group>
+          </group>
+        );
+      })}
+
+      {placements.map((p) => (
+        <Draggable
+          key={p.id} p={p} cfg={cfg} frame={frame}
+          onMove={onMove} onRotate={onRotate} rotateMode={rotateMode}
+          onGrab={() => setOrbit(false)} onRelease={() => setOrbit(true)}
+          selected={selected === p.id} onSelect={onSelect}
+        >
+          {p.type === 'counter' && <Counter tex={counterTex} id={`counter:${p.id}`} ctx={ctx} />}
+          {p.type === 'table' && <SeatingCluster chairs={cfg.chairsPerTable} />}
+          {p.type === 'cabinet' && <Cabinet />}
+          {p.type === 'kiosk' && <Kiosk tex={kioskTex} id={`kiosk:${p.id}`} ctx={ctx} />}
+          {p.type === 'bin' && <Bin />}
+        </Draggable>
+      ))}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 export default function Scene({
   cfg, placements, tvs, onMove, onRotate, setOrbit, selected, onSelect, rotateMode,
@@ -745,32 +860,6 @@ export default function Scene({
     img.src = cfg.logo;
   }, [cfg.logo]);
 
-  const fasciaTexs = useMemo(() => {
-    const lens = Array.from(new Set(
-      fasciaEdges(cfg.openSides, cfg.mirror).map((e) => edgeLength(e, cfg.width, cfg.depth))));
-    const m = new Map<number, THREE.Texture>();
-    for (const l of lens) {
-      m.set(l, makeFasciaTexture(cfg.companyName || 'COMPANY NAME', logoImg, l,
-        FASCIA_H, FASCIA_PRINT_H, cfg.fasciaColor, cfg.fasciaTextColor));
-    }
-    return m;
-  }, [cfg.companyName, logoImg, cfg.width, cfg.depth, cfg.openSides, cfg.mirror,
-      cfg.fasciaColor, cfg.fasciaTextColor]);
-  const texFor = (len: number) => fasciaTexs.get(len)!;
-  const counterTex = useMemo(
-    () => makeCounterTexture(cfg.companyName || 'COMPANY NAME', logoImg, cfg.fasciaTextColor),
-    [cfg.companyName, logoImg, cfg.fasciaTextColor]);
-  const kioskTex = useMemo(
-    () => makeKioskTexture(cfg.companyName || 'COMPANY NAME', '#4da3ff'),
-    [cfg.companyName]);
-
-  const { width: W, depth: D } = cfg;
-
-  const ctx: SurfaceCtx = {
-    tex: artTex, hover: hoverSurface, selected: selectedSurface,
-    onPick: onPickSurface, safeArea: showSafeArea,
-  };
-
   return (
     <group>
       {/* hall floor */}
@@ -781,36 +870,24 @@ export default function Scene({
 
       {cfg.showHall && view !== 'top' && <Hall cfg={cfg} />}
 
-      <Carpet cfg={cfg} />
-      <Walls cfg={cfg} ctx={ctx} />
-      <Fascia cfg={cfg} texFor={texFor} ctx={ctx} />
-      <Lighting cfg={cfg} />
-
-      {tvs.map((t) => {
-        const p = wallPoint(t.wall, t.t, W, D);
+      {stallsOf(cfg).map((s) => {
+        const zOff = stallZ(cfg, s);
+        const flip = s === 'b';
         return (
-          <group key={t.id} position={[p.x, TV_CENTRE_H, p.z]} rotation={[0, p.rotY, 0]}>
-            <group position={[0, 0, WALL_T / 2 + TV_DEPTH / 2 + 0.02]}>
-              <TvUnit id={`tv:${t.id}`} sizeIdx={t.sizeIdx}
-                media={tvMedia[t.id]} ctx={ctx} />
-            </group>
+          <group key={s} position={[0, 0, zOff]} rotation={[0, flip ? Math.PI : 0, 0]}>
+            <Stall
+              cfg={stallCfg(cfg, s)} stall={s} frame={{ zOff, flip }}
+              placements={placements.filter((p) => stallOf(p) === s)}
+              tvs={tvs.filter((t) => stallOf(t) === s)}
+              logoImg={logoImg}
+              onMove={onMove} onRotate={onRotate} rotateMode={rotateMode} setOrbit={setOrbit}
+              selected={selected} onSelect={onSelect}
+              artTex={artTex} hoverSurface={hoverSurface} selectedSurface={selectedSurface}
+              onPickSurface={onPickSurface} showSafeArea={showSafeArea} tvMedia={tvMedia}
+            />
           </group>
         );
       })}
-
-      {placements.map((p) => (
-        <Draggable
-          key={p.id} p={p} cfg={cfg} onMove={onMove} onRotate={onRotate} rotateMode={rotateMode}
-          onGrab={() => setOrbit(false)} onRelease={() => setOrbit(true)}
-          selected={selected === p.id} onSelect={onSelect}
-        >
-          {p.type === 'counter' && <Counter tex={counterTex} id={`counter:${p.id}`} ctx={ctx} />}
-          {p.type === 'table' && <SeatingCluster chairs={cfg.chairsPerTable} />}
-          {p.type === 'cabinet' && <Cabinet />}
-          {p.type === 'kiosk' && <Kiosk tex={kioskTex} id={`kiosk:${p.id}`} ctx={ctx} />}
-          {p.type === 'bin' && <Bin />}
-        </Draggable>
-      ))}
     </group>
   );
 }

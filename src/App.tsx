@@ -5,11 +5,11 @@ import * as THREE from 'three';
 import Scene from './Scene';
 import { Controls, SpecPanel } from './Sidebar';
 import {
-  autoLayout, autoTvs, computeSpecs, wallsFor, fasciaEdges, anchorFor,
-  nextTvSlot, wallLength,
+  autoLayout, autoLayoutAll, autoTvs, autoTvsAll, computeSpecs, wallsFor, fasciaEdges,
+  anchorFor, nextTvSlot, wallLength, pairDepth, stallCfg, stallLabel, stallOf, stallsOf,
 } from './booth';
 import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES } from './constants';
-import type { Config, ItemType, Placement, Tv, TvMedia } from './types';
+import type { Config, ItemType, Placement, StallId, Tv, TvMedia } from './types';
 import {
   DEFAULT_ARTWORK, buildArtworkTexture, loadImage, surfacePrint, surfaceLabel,
   liveSurfaces, type Artwork, type SurfaceId,
@@ -17,8 +17,11 @@ import {
 import * as store from './storage';
 
 const INITIAL: Config = {
-  width: 3, depth: 3, openSides: 1, mirror: false,
-  companyName: 'COMPANY NAME', logo: null,
+  width: 6, depth: 3, openSides: 2, mirror: false,
+  companyName: 'DEPARTMENT OF TECHNICAL EDUCATION',
+  partner: true,
+  partnerName: 'COMMISSIONERATE OF COLLEGIATE EDUCATION',
+  logo: null,
   carpet: '#5a5f66', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
   showSpotBeams: false, showHall: true, ambient: 0.55, chairsPerTable: 4,
 };
@@ -45,34 +48,45 @@ function CameraRig({ view, cfg, controls }: { view: string; cfg: Config; control
     const fit = (w: number, h: number) =>
       Math.max((w / 2) / Math.tan(hFov / 2), (h / 2) / Math.tan(vFov / 2)) * 1.18;
 
+    // The block is as deep as the pair, and each stall's frontage is at one
+    // end of it -- so every camera is placed off the block, not off one stall.
+    const span = pairDepth(cfg);
+    const front = span / 2;
     const dFront = fit(W + 0.8, TOTAL_H + 0.7);
-    const dHero  = fit(Math.max(W, D) * 1.3, TOTAL_H + 0.9);
-    const dTop   = fit(W + 1.2, D + 1.2);
+    const dHero  = fit(Math.max(W, span) * 1.3, TOTAL_H + 0.9);
+    const dTop   = fit(W + 1.2, span + 1.2);
 
     const map: Record<string, [number, number, number]> = {
-      hero:  [dHero * 0.50, Math.max(2.3, dHero * 0.34), D / 2 + dHero * 0.78],
-      front: [0, TOTAL_H * 0.55, D / 2 + dFront],
-      eye:   [W * 0.24, 1.62, D / 2 - 0.25],
+      hero:  [dHero * 0.50, Math.max(2.3, dHero * 0.34), front + dHero * 0.62],
+      front: [0, TOTAL_H * 0.55, front + dFront],
+      rear:  [0, TOTAL_H * 0.55, -front - dFront],
+      eye:   [W * 0.24, 1.62, front - D * 0.25],
       top:   [0.01, dTop, 0.02],
     };
     const p = map[view] ?? map.hero;
     camera.position.set(p[0], p[1], p[2]);
     if (controls.current) {
+      // Elevations look straight into one stall; hero and top frame the block.
+      const aZ = front - D / 2;        // centre of the front stall
       const t = view === 'top' ? [0, 0, 0]
-        : view === 'eye' ? [0, 1.3, -D / 2]
+        : view === 'eye' ? [0, 1.3, front - D]
+        : view === 'rear' ? [0, TOTAL_H * 0.45, -aZ]
+        : view === 'front' ? [0, TOTAL_H * 0.45, aZ]
         : [0, TOTAL_H * 0.45, 0];
       controls.current.target.set(t[0], t[1], t[2]);
       controls.current.update();
     }
-  }, [view, cfg.width, cfg.depth, camera, controls, size.width, size.height]);
+  }, [view, cfg.width, cfg.depth, cfg.partner, camera, controls, size.width, size.height]);
   return null;
 }
 
 export default function App() {
   const [cfg, setCfg] = useState<Config>(INITIAL);
-  const [placements, setPlacements] = useState<Placement[]>(() => autoLayout(INITIAL));
-  const [tvs, setTvs] = useState<Tv[]>(() => autoTvs(INITIAL));
+  const [placements, setPlacements] = useState<Placement[]>(() => autoLayoutAll(INITIAL));
+  const [tvs, setTvs] = useState<Tv[]>(() => autoTvsAll(INITIAL));
   const [orbit, setOrbit] = useState(true);
+  // Which stall the branding, screens and furniture controls act on.
+  const [stall, setStall] = useState<StallId>('a');
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState('hero');
 
@@ -94,15 +108,43 @@ export default function App() {
   const set = (p: Partial<Config>) => setCfg((c) => ({ ...c, ...p }));
 
   // Any structural change rebuilds the layout from scratch.
-  const structKey = `${cfg.width}|${cfg.depth}|${cfg.openSides}|${cfg.mirror}`;
+  const structKey =
+    `${cfg.width}|${cfg.depth}|${cfg.openSides}|${cfg.mirror}|${cfg.partner}`;
   const prevKey = useRef(structKey);
   useEffect(() => {
     if (prevKey.current === structKey) return;
     prevKey.current = structKey;
-    setPlacements(autoLayout(cfg));
-    setTvs(autoTvs(cfg));
+    setPlacements(autoLayoutAll(cfg));
+    setTvs(autoTvsAll(cfg));
     setSelected(null);
   }, [structKey, cfg]);
+
+  // Switching stalls must not leave the controls pointing at the other one.
+  useEffect(() => { if (!cfg.partner) setStall('a'); }, [cfg.partner]);
+
+  // The stall currently being edited, with its own name and open corner.
+  const scfg = useMemo(() => stallCfg(cfg, stall), [cfg, stall]);
+  const myPlacements = placements.filter((p) => stallOf(p) === stall);
+  const myTvs = tvs.filter((t) => stallOf(t) === stall);
+
+  /** Writes to the branding field that belongs to the stall being edited. */
+  const setStallCfg = (p: Partial<Config>) => {
+    if (stall === 'b' && 'companyName' in p) {
+      const { companyName, ...rest } = p;
+      set({ ...rest, partnerName: companyName as string });
+      return;
+    }
+    set(p);
+  };
+
+  /** Replaces this stall's screens, leaving the other stall's alone. */
+  const setMyTvs = (next: Tv[]) =>
+    setTvs([...tvs.filter((t) => stallOf(t) !== stall),
+            ...next.map((t) => ({ ...t, stall }))]);
+
+  const setMyPlacements = (next: Placement[]) =>
+    setPlacements([...placements.filter((p) => stallOf(p) !== stall),
+                   ...next.map((p) => ({ ...p, stall }))]);
 
   const onMove = (id: string, x: number, z: number) =>
     setPlacements((ps) => ps.map((p) => (p.id === id ? { ...p, x, z } : p)));
@@ -110,14 +152,15 @@ export default function App() {
   // --- Furniture: every type can be taken to zero and put back -------------
   const addItem = (type: ItemType) =>
     setPlacements((ps) => {
-      const i = ps.filter((p) => p.type === type).length;
-      return [...ps, { id: `${type}-${Date.now()}`, type, ...anchorFor(type, i, cfg) }];
+      const i = ps.filter((p) => p.type === type && stallOf(p) === stall).length;
+      return [...ps,
+        { id: `${type}-${Date.now()}`, stall, type, ...anchorFor(type, i, scfg) }];
     });
 
   const removeItem = (type: ItemType) =>
     setPlacements((ps) => {
       for (let i = ps.length - 1; i >= 0; i--) {
-        if (ps[i].type === type) {
+        if (ps[i].type === type && stallOf(ps[i]) === stall) {
           const gone = ps[i];
           if (selected === gone.id) setSelected(null);
           return ps.filter((_, j) => j !== i);
@@ -126,20 +169,21 @@ export default function App() {
       return ps;
     });
 
-  const countOf = (type: ItemType) => placements.filter((p) => p.type === type).length;
+  const countOf = (type: ItemType) =>
+    placements.filter((p) => p.type === type && stallOf(p) === stall).length;
 
   const addTv = () => {
-    const slot = nextTvSlot(cfg, tvs, TV_DEFAULT_IDX);
+    const slot = nextTvSlot(scfg, myTvs, TV_DEFAULT_IDX);
     if (slot) {
-      setTvs([...tvs, { id: `tv-${Date.now()}`, ...slot, sizeIdx: TV_DEFAULT_IDX }]);
+      setTvs([...tvs, { id: `tv-${Date.now()}`, stall, ...slot, sizeIdx: TV_DEFAULT_IDX }]);
       return;
     }
     // No clear run left. Add it anyway, but offset so it is visibly a second
     // screen rather than hidden inside the first, and say why it looks tight.
-    const wall = wallsFor(cfg.openSides, cfg.mirror)[0];
-    const len = wallLength(wall, cfg.width, cfg.depth);
-    const t = Math.min(len - 0.3, 0.3 + tvs.length * 0.4);
-    setTvs([...tvs, { id: `tv-${Date.now()}`, wall, t, sizeIdx: TV_DEFAULT_IDX }]);
+    const wall = wallsFor(scfg.openSides, scfg.mirror)[0];
+    const len = wallLength(wall, scfg.width, scfg.depth);
+    const t = Math.min(len - 0.3, 0.3 + myTvs.length * 0.4);
+    setTvs([...tvs, { id: `tv-${Date.now()}`, stall, wall, t, sizeIdx: TV_DEFAULT_IDX }]);
     setToast(
       `No clear space left for a ${TV_SIZES[TV_DEFAULT_IDX].label} screen — ` +
       `added overlapping. Use a smaller size or move it along the wall.`,
@@ -161,6 +205,7 @@ export default function App() {
       if (!src) return ps;
       const copy = {
         ...src,
+        stall: stallOf(src),
         id: `${src.type}-${Date.now()}`,
         x: THREE.MathUtils.clamp(src.x + 0.45, -cfg.width / 2 + 0.35, cfg.width / 2 - 0.35),
         z: THREE.MathUtils.clamp(src.z + 0.45, -cfg.depth / 2 + 0.35, cfg.depth / 2 - 0.35),
@@ -312,8 +357,9 @@ export default function App() {
     if (files.length === 0) return;
     if (!id) { setToast('Drop it directly onto a surface or a screen'); return; }
 
-    if (id.startsWith('tv:')) {
-      assignTvMedia(id.slice(3), files);
+    const tvPrefix = id.startsWith('b/tv:') ? 'b/tv:' : id.startsWith('tv:') ? 'tv:' : null;
+    if (tvPrefix) {
+      assignTvMedia(id.slice(tvPrefix.length), files);
       setSelectedSurface(id);
       return;
     }
@@ -344,7 +390,7 @@ export default function App() {
       let changed = false;
       const out: Record<SurfaceId, Artwork> = {};
       for (const [id, art] of Object.entries(a)) {
-        const kind = id.split(':')[0];
+        const kind = id.replace(/^b\//, '').split(':')[0];
         if ((kind === 'counter' || kind === 'kiosk') && !live.has(id)) {
           URL.revokeObjectURL(art.src);
           changed = true;
@@ -354,7 +400,8 @@ export default function App() {
       }
       return changed ? out : a;
     });
-    if (selectedSurface && !live.has(selectedSurface) && !selectedSurface.startsWith('tv:')) {
+    const isTv = /^(b\/)?tv:/.test(selectedSurface ?? '');
+    if (selectedSurface && !live.has(selectedSurface) && !isTv) {
       setSelectedSurface(null);
     }
   }, [placements, cfg]);
@@ -408,7 +455,9 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const reset = () => { setPlacements(autoLayout(cfg)); setTvs(autoTvs(cfg)); setSelected(null); };
+  const reset = () => {
+    setPlacements(autoLayoutAll(cfg)); setTvs(autoTvsAll(cfg)); setSelected(null);
+  };
 
   const specs = useMemo(() => computeSpecs(cfg, placements, tvs), [cfg, placements, tvs]);
 
@@ -418,23 +467,38 @@ export default function App() {
     const url = gl.domElement.toDataURL('image/png');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `booth_${cfg.width}x${cfg.depth}_${cfg.openSides}side.png`;
+    a.download = `booth_${cfg.width}x${cfg.depth}${cfg.partner ? '_pair' : ''}_${cfg.openSides}side.png`;
     a.click();
   };
 
   const exportTxt = () => {
-    const walls = wallsFor(cfg.openSides, cfg.mirror);
-    const edges = fasciaEdges(cfg.openSides, cfg.mirror);
+    const ss = stallsOf(cfg);
+    const perStall = ss.flatMap((id) => {
+      const sc = stallCfg(cfg, id);
+      const walls = wallsFor(sc.openSides, sc.mirror);
+      const edges = fasciaEdges(sc.openSides, sc.mirror);
+      return [
+        `${id === 'a' ? 'FRONT' : 'REAR'} STALL — ${stallLabel(cfg, id)}`,
+        `  Footprint        ${sc.width} x ${sc.depth} m  (${sc.width * sc.depth} sqm)`,
+        `  Open sides       ${sc.openSides}${sc.openSides === 2 ? (sc.mirror ? ' (opens left)' : ' (opens right)') : ''}`,
+        `  Walls            ${walls.join(', ')}`,
+        `  Fascia runs      ${edges.join(', ')}`,
+        `  Furniture        ${placements.filter((p) => stallOf(p) === id).length} items · ` +
+          `${tvs.filter((t) => stallOf(t) === id).length} screen(s)`,
+        ``,
+      ];
+    });
     const L = [
       `BOOTH SPECIFICATION`,
-      `${cfg.companyName}`,
+      ss.map((id) => stallLabel(cfg, id)).join('  |  '),
       ``,
-      `Footprint          ${cfg.width} x ${cfg.depth} m  (${specs.area} sqm / ${Math.round(specs.areaFt)} sq ft)`,
-      `Open sides         ${cfg.openSides}${cfg.openSides === 2 ? (cfg.mirror ? ' (opens left)' : ' (opens right)') : ''}`,
-      `Walls              ${walls.join(', ')}`,
-      `Fascia runs        ${edges.join(', ')}  = ${specs.fasciaLen.toFixed(1)} m`,
+      `Arrangement        ${cfg.partner ? 'Back-to-back pair, one shared wall line' : 'Single stall'}`,
+      `Overall block      ${cfg.width} x ${pairDepth(cfg).toFixed(2)} m`,
+      `Total area         ${specs.area} sqm / ${Math.round(specs.areaFt)} sq ft`,
+      `Fascia total       ${specs.fasciaLen.toFixed(1)} m`,
       `Overall height     2500 mm (2200 panel zone + 300 fascia)`,
       ``,
+      ...perStall,
       `STRUCTURE`,
       `Wall panels        ${specs.panelCount} @ 960 mm wide`,
       `Panels behind TVs  ${specs.panelsConsumedByTv}`,
@@ -463,7 +527,7 @@ export default function App() {
     const blob = new Blob([L], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `booth_${cfg.width}x${cfg.depth}_spec.txt`;
+    a.download = `booth_${cfg.width}x${cfg.depth}${cfg.partner ? '_pair' : ''}_spec.txt`;
     a.click();
   };
 
@@ -471,8 +535,11 @@ export default function App() {
     <div className="app">
       <Controls
         cfg={cfg} set={set}
-        tvs={tvs} setTvs={setTvs}
-        placements={placements} setPlacements={setPlacements}
+        stall={stall} setStall={setStall} scfg={scfg}
+        stallNames={stallsOf(cfg).map((s) => stallLabel(cfg, s))}
+        setStallCfg={setStallCfg}
+        tvs={myTvs} setTvs={setMyTvs}
+        placements={myPlacements} setPlacements={setMyPlacements}
         onReset={reset} view={view} setView={setView}
         addItem={addItem} removeItem={removeItem} countOf={countOf}
         selectedItem={selectedItem} onRotate={onRotate}
@@ -527,7 +594,7 @@ export default function App() {
             />
           </Suspense>
           <ContactShadows position={[0, 0.012, 0]} opacity={0.42}
-            scale={Math.max(cfg.width, cfg.depth) * 2.4} blur={2.4} far={4} />
+            scale={Math.max(cfg.width, pairDepth(cfg)) * 2.4} blur={2.4} far={4} />
           <OrbitControls
             ref={controls} enabled={orbit}
             enableDamping dampingFactor={0.08}

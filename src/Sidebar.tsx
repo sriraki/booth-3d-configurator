@@ -1,6 +1,6 @@
 import { TV_SIZES, SIZES, PANEL_PRINT_H } from './constants';
 import { wallsFor, wallLength, ITEM_TYPES, ITEM_LABEL } from './booth';
-import type { Config, ItemType, Placement, Tv, TvMedia, WallId } from './types';
+import type { Config, ItemType, Placement, StallId, Tv, TvMedia, WallId } from './types';
 import type { Specs } from './booth';
 import {
   surfaceLabel, surfacePrint, effectiveDpi, resolutionVerdict,
@@ -19,7 +19,8 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 export function Controls({
-  cfg, set, tvs, setTvs, placements, setPlacements, onReset, view, setView,
+  cfg, set, scfg, stall, setStall, stallNames, setStallCfg,
+  tvs, setTvs, placements, setPlacements, onReset, view, setView,
   addItem, removeItem, countOf,
   selectedItem, onRotate, removeById, duplicateById, onSelectItem,
   rotateMode, setRotateMode,
@@ -29,6 +30,10 @@ export function Controls({
   showSafeArea, setShowSafeArea, assign,
 }: {
   cfg: Config; set: (p: Partial<Config>) => void;
+  /** The stall being edited, and a setter that writes to its own fields. */
+  scfg: Config; stall: StallId; setStall: (s: StallId) => void;
+  stallNames: string[];
+  setStallCfg: (p: Partial<Config>) => void;
   tvs: Tv[]; setTvs: (t: Tv[]) => void;
   placements: Placement[]; setPlacements: (p: Placement[]) => void;
   onReset: () => void;
@@ -57,7 +62,7 @@ export function Controls({
   showSafeArea: boolean; setShowSafeArea: (v: boolean) => void;
   assign: (id: SurfaceId, f: File) => void;
 }) {
-  const walls = wallsFor(cfg.openSides, cfg.mirror);
+  const walls = wallsFor(scfg.openSides, scfg.mirror);
 
   const upTv = (id: string, patch: Partial<Tv>) =>
     setTvs(tvs.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -88,8 +93,35 @@ export function Controls({
             </select>
           </label>
         </div>
-        <div className="note">{cfg.width} × {cfg.depth} m — {cfg.width * cfg.depth} sqm</div>
+        <div className="note">
+          {cfg.width} × {cfg.depth} m — {cfg.width * cfg.depth} sqm each
+          {cfg.partner && <> · block {cfg.width} × {(cfg.depth * 2).toFixed(0)} m</>}
+        </div>
+        <button className={`full${cfg.partner ? ' on' : ' ghost'}`}
+          onClick={() => set({ partner: !cfg.partner })}>
+          {cfg.partner ? '✓ Back-to-back pair' : 'Add a back-to-back stall'}
+        </button>
+        <div className="note">
+          The rear stall shares this one's back wall and opens the opposite corner.
+        </div>
       </section>
+
+      {cfg.partner && (
+        <section>
+          <h2>Editing</h2>
+          <div className="seg">
+            {(['a', 'b'] as const).map((s, i) => (
+              <button key={s} className={stall === s ? 'on' : ''} onClick={() => setStall(s)}>
+                {i === 0 ? 'Front' : 'Rear'}
+              </button>
+            ))}
+          </div>
+          <div className="note">
+            Branding, screens and furniture below apply to the{' '}
+            <b>{stall === 'a' ? 'front' : 'rear'}</b> stall — {stallNames[stall === 'a' ? 0 : 1]}.
+          </div>
+        </section>
+      )}
 
       <section>
         <h2>Open sides</h2>
@@ -107,17 +139,25 @@ export function Controls({
           {cfg.openSides === 3 && 'Peninsula — back wall only'}
         </div>
         {cfg.openSides === 2 && (
-          <button className="ghost full" onClick={() => set({ mirror: !cfg.mirror })}>
-            Flip open side → {cfg.mirror ? 'opens left' : 'opens right'}
-          </button>
+          <>
+            <button className="ghost full" onClick={() => set({ mirror: !cfg.mirror })}>
+              Flip open side → front stall {cfg.mirror ? 'opens left' : 'opens right'}
+            </button>
+            {cfg.partner && (
+              <div className="note">
+                The rear stall takes the opposite flank, so the pair reads as a
+                pinwheel: {cfg.mirror ? 'front opens left, rear opens right' : 'front opens right, rear opens left'}.
+              </div>
+            )}
+          </>
         )}
       </section>
 
       <section>
-        <h2>Branding</h2>
+        <h2>Branding{cfg.partner && <span className="hgroup tiny">{stall === 'a' ? 'front' : 'rear'} stall</span>}</h2>
         <label>Company name
-          <input value={cfg.companyName} maxLength={40}
-            onChange={(e) => set({ companyName: e.target.value })} />
+          <input value={scfg.companyName} maxLength={48}
+            onChange={(e) => setStallCfg({ companyName: e.target.value })} />
         </label>
         <label className="file">Logo (optional)
           <input type="file" accept="image/*" onChange={onLogo} />
@@ -439,7 +479,9 @@ export function Controls({
       <section>
         <h2>View</h2>
         <div className="seg">
-          {['hero', 'front', 'eye', 'top'].map((v) => (
+          {(cfg.partner
+            ? ['hero', 'front', 'rear', 'eye', 'top']
+            : ['hero', 'front', 'eye', 'top']).map((v) => (
             <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v}</button>
           ))}
         </div>

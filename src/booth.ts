@@ -1,8 +1,8 @@
 import {
   PANEL_PITCH, PANEL_PRINT_W, PANEL_PRINT_H, FASCIA_PRINT_H, FASCIA_PRINT_W_BAY,
-  SQM_TO_SQFT, TV_SIZES, TV_DEFAULT_IDX, FOOTPRINT, TOTAL_H,
+  SQM_TO_SQFT, TV_SIZES, TV_DEFAULT_IDX, FOOTPRINT, TOTAL_H, WALL_T,
 } from './constants';
-import type { Config, EdgeId, ItemType, Placement, Tv, WallId } from './types';
+import type { Config, EdgeId, ItemType, Placement, StallId, Tv, WallId } from './types';
 
 // --- Topology --------------------------------------------------------------
 // Convention: X = width axis, Z = depth axis, origin at floor centre.
@@ -20,6 +20,40 @@ export function fasciaEdges(openSides: 1 | 2 | 3, mirror: boolean): EdgeId[] {
   if (openSides === 2) return mirror ? ['front', 'left'] : ['front', 'right'];
   return ['front', 'left', 'right'];
 }
+
+// --- Back-to-back pair -----------------------------------------------------
+// Stall 'a' faces +z. Stall 'b' is the same stall rotated 180 degrees and
+// pushed behind it, so the two back walls meet skin to skin at z = 0. Every
+// piece of geometry below is written in a single stall's local frame; the
+// pair only exists as two group transforms in the scene.
+
+export const STALLS: StallId[] = ['a', 'b'];
+
+/** The stalls actually built: just 'a' unless a partner is switched on. */
+export const stallsOf = (cfg: Config): StallId[] => (cfg.partner ? STALLS : ['a']);
+
+export const stallOf = (x: { stall?: StallId }): StallId => x.stall ?? 'a';
+
+/** The config as that stall sees it: its own name, its own open corner.
+ *  `mirror` is deliberately NOT flipped. The rear stall is already turned
+ *  180 degrees, so keeping the same local open side puts it on the opposite
+ *  side of the block -- the pinwheel you want, rather than both stalls
+ *  crowding the same flank. */
+export function stallCfg(cfg: Config, s: StallId): Config {
+  if (s === 'a') return cfg;
+  return { ...cfg, companyName: cfg.partnerName };
+}
+
+export const stallLabel = (cfg: Config, s: StallId) =>
+  (s === 'a' ? cfg.companyName : cfg.partnerName) || (s === 'a' ? 'Stall A' : 'Stall B');
+
+/** World z of a stall's centre. The half wall keeps the two skins apart. */
+export const stallZ = (cfg: Config, s: StallId) =>
+  (s === 'a' ? 1 : -1) * (cfg.depth / 2 + WALL_T / 2);
+
+/** Front-to-back size of the whole arrangement. */
+export const pairDepth = (cfg: Config) =>
+  cfg.partner ? cfg.depth * 2 + WALL_T : cfg.depth;
 
 export const wallLength = (w: WallId, W: number, D: number) => (w === 'back' ? W : D);
 export const edgeLength = (e: EdgeId, W: number, D: number) => (e === 'front' ? W : D);
@@ -99,18 +133,24 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
   }
 }
 
-export function autoLayout(cfg: Config): Placement[] {
-  const c = defaultCounts(cfg.width * cfg.depth);
+export function autoLayout(cfg: Config, stall: StallId = 'a'): Placement[] {
+  const sc = stallCfg(cfg, stall);
+  const c = defaultCounts(sc.width * sc.depth);
   const out: Placement[] = [];
   for (const type of ITEM_TYPES) {
     for (let i = 0; i < c[type]; i++) {
-      out.push({ id: `${type}-${i}`, type, ...anchorFor(type, i, cfg) });
+      out.push({ id: `${stall}-${type}-${i}`, stall, type, ...anchorFor(type, i, sc) });
     }
   }
   return out;
 }
 
-export function autoTvs(cfg: Config): Tv[] {
+/** Furniture for every stall in the arrangement. */
+export const autoLayoutAll = (cfg: Config): Placement[] =>
+  stallsOf(cfg).flatMap((s) => autoLayout(cfg, s));
+
+export function autoTvs(cfg: Config, stall: StallId = 'a'): Tv[] {
+  cfg = stallCfg(cfg, stall);
   const { width: W, depth: D } = cfg;
   const c = defaultCounts(W * D);
   const size = TV_SIZES[TV_DEFAULT_IDX];
@@ -132,13 +172,16 @@ export function autoTvs(cfg: Config): Tv[] {
     const fit = Math.max(0, Math.floor(len / (size.w + 0.4)));
     const n = Math.min(fit, remaining);
     for (let i = 0; i < n; i++) {
-      out.push({ id: `tv-${out.length}`, wall,
+      out.push({ id: `${stall}-tv-${out.length}`, stall, wall,
         t: (len * (i + 1)) / (n + 1), sizeIdx: TV_DEFAULT_IDX });
     }
     remaining -= n;
   }
   return out;
 }
+
+export const autoTvsAll = (cfg: Config): Tv[] =>
+  stallsOf(cfg).flatMap((s) => autoTvs(cfg, s));
 
 /**
  * Where to put a newly added TV. Previously every new screen went to the wall
@@ -221,13 +264,22 @@ export interface Specs {
 
 export function computeSpecs(cfg: Config, placements: Placement[], tvs: Tv[]): Specs {
   const W = cfg.width, D = cfg.depth;
-  const area = W * D;
+  const stalls = stallsOf(cfg);
+  // Two stalls means two of everything structural. The BOM a fabricator
+  // works from has to cover the whole build, not one half of it.
+  const area = W * D * stalls.length;
 
-  const walls = wallsFor(cfg.openSides, cfg.mirror);
-  const panelCount = walls.reduce((a, w) => a + panelsOnWall(w, W, D), 0);
+  const panelCount = stalls.reduce((a, s) => {
+    const sc = stallCfg(cfg, s);
+    return a + wallsFor(sc.openSides, sc.mirror)
+      .reduce((b, w) => b + panelsOnWall(w, W, D), 0);
+  }, 0);
 
-  const edges = fasciaEdges(cfg.openSides, cfg.mirror);
-  const fasciaLen = edges.reduce((a, e) => a + edgeLength(e, W, D), 0);
+  const fasciaLen = stalls.reduce((a, s) => {
+    const sc = stallCfg(cfg, s);
+    return a + fasciaEdges(sc.openSides, sc.mirror)
+      .reduce((b, e) => b + edgeLength(e, W, D), 0);
+  }, 0);
 
   // Fascia prints 2970 of every 3000 mm, and 260 of the 300 mm band.
   const fasciaPrintSqm = fasciaLen * (FASCIA_PRINT_W_BAY / 3) * FASCIA_PRINT_H;
@@ -243,7 +295,7 @@ export function computeSpecs(cfg: Config, placements: Placement[], tvs: Tv[]): S
 
   const count = (t: string) => placements.filter((p) => p.type === t).length;
   const tables = count('table');
-  const spots = spotlights(cfg).length;
+  const spots = stalls.reduce((a, s) => a + spotlights(stallCfg(cfg, s)).length, 0);
   const kiosks = count('kiosk');
   const sockets = 1 + tvs.length + kiosks;
 
@@ -260,7 +312,7 @@ export function computeSpecs(cfg: Config, placements: Placement[], tvs: Tv[]): S
       `TVs consume ${panelsConsumedByTv} of ${panelCount} wall panels — over half your ` +
       `printable graphics. Consider fewer or smaller screens.`);
   }
-  if (cfg.openSides === 3 && tvs.length > 0 && panelCount <= 4) {
+  if (cfg.openSides === 3 && tvs.length > 0 && panelCount <= 4 * stalls.length) {
     warnings.push(
       `A 3-sides-open stall has only ${panelCount} wall panels. Wall-mounted TVs and ` +
       `branding are competing for the same small area.`);

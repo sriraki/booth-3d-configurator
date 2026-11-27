@@ -1,14 +1,27 @@
 import * as THREE from 'three';
 import { FASCIA_PRINT_H, PANEL_PRINT_W, PANEL_PRINT_H, COUNTER, KIOSK } from './constants';
-import { edgeLength, fasciaEdges, panelsOnWall, wallsFor } from './booth';
-import type { Config, EdgeId, Placement } from './types';
+import {
+  edgeLength, fasciaEdges, panelsOnWall, stallCfg, stallOf, stallsOf, wallsFor,
+} from './booth';
+import type { Config, EdgeId, Placement, StallId } from './types';
 
 // ---------------------------------------------------------------------------
 // Surfaces are addressed by a stable string id so artwork survives re-layout.
 //   panel:back:0   panel:left:2   fascia:front   counter:counter-0   kiosk:kiosk-0
+// With a back-to-back pair the rear stall's ids carry a `b/` prefix, so the
+// two stalls never share a drop target even though their geometry is identical.
 // ---------------------------------------------------------------------------
 
 export type SurfaceId = string;
+
+export const nsOf = (stall: StallId) => (stall === 'a' ? '' : 'b/');
+
+/** Split a surface id into the stall it belongs to and its bare id. */
+export function splitSurface(id: SurfaceId): { stall: StallId; bare: string } {
+  return id.startsWith('b/')
+    ? { stall: 'b', bare: id.slice(2) }
+    : { stall: 'a', bare: id };
+}
 
 export type FitMode = 'cover' | 'contain' | 'stretch';
 
@@ -34,7 +47,7 @@ export const DEFAULT_ARTWORK: Omit<Artwork, 'name' | 'src' | 'imgW' | 'imgH'> = 
 export interface PrintSpec { w: number; h: number; frame: number; label: string }
 
 export function surfacePrint(id: SurfaceId, cfg: Config): PrintSpec | null {
-  const [kind, a] = id.split(':');
+  const [kind, a] = splitSurface(id).bare.split(':');
   if (kind === 'panel') {
     return { w: PANEL_PRINT_W * 1000, h: PANEL_PRINT_H * 1000, frame: 15, label: 'Wall panel' };
   }
@@ -52,13 +65,16 @@ export function surfacePrint(id: SurfaceId, cfg: Config): PrintSpec | null {
 }
 
 export function surfaceLabel(id: SurfaceId): string {
-  const [kind, a, b] = id.split(':');
-  if (kind === 'panel') return `${a} wall · panel ${Number(b) + 1}`;
-  if (kind === 'fascia') return `fascia · ${a}`;
-  if (kind === 'counter') return 'counter face';
-  if (kind === 'kiosk') return 'kiosk screen';
-  if (kind === 'tv') return 'TV screen';
-  return id;
+  const { stall, bare } = splitSurface(id);
+  const [kind, a, b] = bare.split(':');
+  const where =
+    kind === 'panel' ? `${a} wall · panel ${Number(b) + 1}`
+    : kind === 'fascia' ? `fascia · ${a}`
+    : kind === 'counter' ? 'counter face'
+    : kind === 'kiosk' ? 'kiosk screen'
+    : kind === 'tv' ? 'TV screen'
+    : bare;
+  return stall === 'b' ? `rear stall · ${where}` : where;
 }
 
 // --- Resolution -------------------------------------------------------------
@@ -160,13 +176,19 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
  */
 export function liveSurfaces(cfg: Config, placements: Placement[]): Set<SurfaceId> {
   const out = new Set<SurfaceId>();
-  for (const w of wallsFor(cfg.openSides, cfg.mirror)) {
-    const n = panelsOnWall(w, cfg.width, cfg.depth);
-    for (let i = 0; i < n; i++) out.add(`panel:${w}:${i}`);
+  for (const stall of stallsOf(cfg)) {
+    const sc = stallCfg(cfg, stall);
+    const ns = nsOf(stall);
+    for (const w of wallsFor(sc.openSides, sc.mirror)) {
+      const n = panelsOnWall(w, sc.width, sc.depth);
+      for (let i = 0; i < n; i++) out.add(`${ns}panel:${w}:${i}`);
+    }
+    for (const e of fasciaEdges(sc.openSides, sc.mirror)) out.add(`${ns}fascia:${e}`);
   }
-  for (const e of fasciaEdges(cfg.openSides, cfg.mirror)) out.add(`fascia:${e}`);
   for (const p of placements) {
-    if (p.type === 'counter' || p.type === 'kiosk') out.add(`${p.type}:${p.id}`);
+    if (p.type === 'counter' || p.type === 'kiosk') {
+      out.add(`${nsOf(stallOf(p))}${p.type}:${p.id}`);
+    }
   }
   return out;
 }
