@@ -102,6 +102,13 @@ export const pairDepth = (cfg: Config) =>
   cfg.partner ? cfg.depth * 2 + WALL_T : cfg.depth;
 
 export const wallLength = (w: WallId, W: number, D: number) => (w === 'back' ? W : D);
+
+/** Walls in the order a screen should take them: the 3 m side wall first,
+ *  the long back wall last. A screen on the side wall faces across the stall
+ *  and leaves the whole back wall free for printed graphics. */
+export const screenWalls = (openSides: 1 | 2 | 3, mirror: boolean): WallId[] =>
+  wallsFor(openSides, mirror).slice()
+    .sort((a, b) => Number(a === 'back') - Number(b === 'back'));
 export const edgeLength = (e: EdgeId, W: number, D: number) => (e === 'front' ? W : D);
 
 /** One panel per running metre (960 mm leaf + 40 mm upright = 1000 mm pitch). */
@@ -176,18 +183,19 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
     case 'table':
       return { x: clampX(-wallSide * (W * 0.09)), z: clampZ(D / 2 - 1.0 - i * 1.7), rotY: 0 };
     case 'steps':
-      // Backed onto the walled flank and run front to back, so the staircase
-      // is read along its length and every caption faces the aisle.
+      // Off the back wall on the walled half, running front to back so the
+      // staircase is read along its length and every caption faces the aisle.
+      // Kept clear of the side wall, which the screen now occupies.
       return {
-        x: clampX(wallSide * (W / 2 - 0.78)),
-        z: clampZ(-D / 2 + 1.0 + i * 0.3),
+        x: clampX(wallSide * (W * 0.25 + i * 1.4)),
+        z: clampZ(-D / 2 + 1.0),
         rotY: 0,
       };
     case 'kiosk':
       return {
-        x: clampX(wallSide * (W * 0.22 + i * 0.9)),
-        z: clampZ(-D / 2 + 0.55),
-        rotY: wallSide * 0.6,
+        x: clampX(-wallSide * (W / 2 - 0.45)),
+        z: clampZ(-D / 2 + 0.9 + i * 0.8),
+        rotY: -wallSide * 0.6,
       };
     case 'bin':
     default:
@@ -223,7 +231,7 @@ export function autoTvs(cfg: Config, stall: StallId = 'a'): Tv[] {
   cfg = stallCfg(cfg, stall);
   const { width: W, depth: D } = cfg;
   const size = TV_SIZES[sizeIdx];
-  const walls = wallsFor(cfg.openSides, cfg.mirror);
+  const walls = screenWalls(cfg.openSides, cfg.mirror);
 
   // A TV blanks every panel it covers. Open stalls have few panels to begin
   // with, so the DEFAULT layout never spends more than half of them on screens
@@ -265,7 +273,7 @@ export function nextTvSlot(
   const GAP = 0.2;      // clear space either side of a screen
   const EDGE = 0.15;    // keep clear of the corner uprights
 
-  for (const wall of wallsFor(cfg.openSides, cfg.mirror)) {
+  for (const wall of screenWalls(cfg.openSides, cfg.mirror)) {
     const len = wallLength(wall, cfg.width, cfg.depth);
     const taken = tvs
       .filter((t) => t.wall === wall)

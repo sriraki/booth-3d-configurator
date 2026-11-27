@@ -21,7 +21,7 @@ import * as store from './storage';
  *  sides, the furniture kit, seating. A session saved against an older design
  *  would otherwise pin defaults the design has since moved on from, so it
  *  starts from the new one. Artwork and screen media are kept either way. */
-const CFG_REV = 4;
+const CFG_REV = 5;
 
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
@@ -82,9 +82,13 @@ function CameraRig({ view, cfg, controls }: { view: string; cfg: Config; control
     const dHero  = fit(Math.max(b.w, b.d) * 1.02, TOTAL_H + 1.0);
     const dTop   = fit(b.w + 2, b.d + 2);
 
+    // Every stall opens the same flank, so the overview belongs on that side
+    // -- from the other one it is a tour of closed back walls.
+    const openX = cfg.mirror ? -1 : 1;
+
     const map: Record<string, [number, number, number]> = {
       // Kept under the hall deck, or the ceiling would hide everything.
-      hero:  [b.cx + dHero * 0.46, Math.min(8.6, Math.max(3, dHero * 0.52)),
+      hero:  [b.cx + openX * dHero * 0.46, Math.min(8.6, Math.max(3, dHero * 0.52)),
               b.cz + dHero * 0.70],
       front: [0, TOTAL_H * 0.55, front + dFront],
       rear:  [0, TOTAL_H * 0.55, -front - dFront],
