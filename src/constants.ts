@@ -48,3 +48,6 @@ export const FOOTPRINT: Record<string, number> = {
 };
 
 export const SIZES = [3, 4, 5, 6] as const;
+
+/** Clear walkway between blocks of stalls, metres. */
+export const AISLE_W = 3;

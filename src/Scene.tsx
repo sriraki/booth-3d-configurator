@@ -4,16 +4,20 @@ import { useThree } from '@react-three/fiber';
 import {
   PANEL_LEAF, PANEL_ZONE_H, POST_W, TOTAL_H, FASCIA_H, FASCIA_PRINT_H, WALL_T,
   COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_CENTRE_H, TV_DEPTH,
+  AISLE_W,
 } from './constants';
 import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, spotlights,
-  stallsOf, stallCfg, stallOf, stallZ, pairDepth,
+  stallsOf, stallCfg, stallOf, stallPose, arrangementBounds, pairDepth,
 } from './booth';
 import type { Config, EdgeId, Placement, StallId, Tv, TvMedia, WallId } from './types';
 import {
   DEFAULT_ARTWORK, buildArtworkTexture, loadImage, nsOf, type SurfaceId,
 } from './artwork';
-import { makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture } from './textures';
+import {
+  makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture,
+  makeTileTexture,
+} from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
 const PANEL_MAT = { color: '#f4f4f1', roughness: 0.92, metalness: 0.0 };
@@ -211,55 +215,119 @@ function Fascia({ cfg, texFor, ctx }: { cfg: Config; texFor: (len: number) => TH
 }
 
 // ---------------------------------------------------------------------------
-// Exhibition hall surroundings: aisle carpet, truss ceiling and high bays.
-// Enough to give the render a sense of scale and stop the stall floating in a
-// void, with no neighbouring stalls to compete with it.
+// Indoor hall: white porcelain tile flooring, the walkways between the stalls
+// picked out in a warmer tile, a high ceiling and warm high-bay lighting.
+// Context only -- it never competes with the stalls.
 // ---------------------------------------------------------------------------
 
-function Hall({ cfg }: { cfg: Config }) {
-  const W = cfg.width;
-  const span = pairDepth(cfg);
-  const AISLE = 3;
+const HALL_W = 80;
+/** Deck height. Real halls are 8-12 m, and the headroom is what lets the
+ *  overview camera sit high enough to read the arrangement as a plan. */
+export const CEIL_H = 10;
+
+/** Circulation between the stalls: the walkway the client's layout marks
+ *  between the block and the diagonal stall, and the strip down the flank
+ *  both halves of the block open onto. */
+function Walkways({ cfg }: { cfg: Config }) {
+  const b = arrangementBounds(cfg);
+  const pair = pairDepth(cfg);
+  const runs: { x: number; z: number; w: number; d: number; wide: boolean }[] = [];
+
+  // Down the flank the back-to-back pair opens onto.
+  const flank = cfg.mirror ? -1 : 1;
+  runs.push({
+    x: flank * (cfg.width / 2 + AISLE_W / 2), z: 0,
+    w: AISLE_W, d: pair + AISLE_W, wide: false,
+  });
+  if (cfg.third) {
+    // The marked walkway, between the block and the diagonal stall.
+    runs.push({
+      x: b.cx, z: -(pair / 2 + AISLE_W / 2),
+      w: b.w + AISLE_W, d: AISLE_W, wide: true,
+    });
+  }
 
   return (
     <group>
-      {/* Aisle carpet across each open frontage. A back-to-back pair faces
-          two aisles, one at either end of the block. */}
-      {(cfg.partner ? [1, -1] : [1]).map((sgn) => (
-        <mesh key={sgn} rotation={[-Math.PI / 2, 0, 0]}
-          position={[0, 0.004, sgn * (span / 2 + AISLE / 2)]} receiveShadow>
-          <planeGeometry args={[Math.max(28, W * 5), AISLE]} />
-          <meshStandardMaterial color="#6d3d3d" roughness={1} />
-        </mesh>
+      {runs.map((r, i) => (
+        <group key={i}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[r.x, 0.003, r.z]} receiveShadow>
+            <planeGeometry args={[r.w, r.d]} />
+            <meshStandardMaterial color="#ccd1d5" roughness={0.55} metalness={0.03} />
+          </mesh>
+          {/* edge markings, so it reads as a route rather than a patch of
+              differently coloured floor */}
+          {[-1, 1].map((e) => (
+            <mesh key={e} rotation={[-Math.PI / 2, 0, 0]}
+              position={r.wide
+                ? [r.x, 0.004, r.z + e * (r.d / 2 - 0.05)]
+                : [r.x + e * (r.w / 2 - 0.05), 0.004, r.z]}>
+              <planeGeometry args={r.wide ? [r.w, 0.07] : [0.07, r.d]} />
+              <meshBasicMaterial color="#939ca3" />
+            </mesh>
+          ))}
+        </group>
       ))}
+    </group>
+  );
+}
 
-      {/* No neighbouring stalls at all: the booth is shown standing clear so
-          nothing competes with it in a client preview. Carpet, ceiling, truss
-          and high bays are all that remain of the hall. */}
+function Hall({ cfg, view }: { cfg: Config; view: string }) {
+  const b = arrangementBounds(cfg);
+  const overhead = view !== 'top';   // the plan view looks through the ceiling
+  const tiles = useMemo(() => {
+    const t = makeTileTexture();
+    t.repeat.set(HALL_W / 2, HALL_W / 2);   // the canvas covers 2 x 2 m
+    return t;
+  }, []);
 
-      {/* hall ceiling and a few truss runs well above the stalls */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 7.5, 0]}>
-        <planeGeometry args={[70, 70]} />
-        <meshStandardMaterial color="#23262a" roughness={1} side={THREE.FrontSide} />
+  return (
+    <group>
+      {/* tiled hall floor */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[b.cx, 0.002, b.cz]} receiveShadow>
+        <planeGeometry args={[HALL_W, HALL_W]} />
+        <meshStandardMaterial map={tiles} color="#ffffff" roughness={0.3} metalness={0.05} />
       </mesh>
-      {[-10, -5, 0, 5, 10].map((x) => (
-        <mesh key={`tr${x}`} position={[x, 6.6, 0]}>
-          <boxGeometry args={[0.18, 0.18, 60]} />
-          <meshStandardMaterial color="#3a3f45" metalness={0.5} roughness={0.6} />
+
+      <Walkways cfg={cfg} />
+
+      {/* ceiling deck and truss runs, warm rather than black */}
+      {overhead && <>
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[b.cx, CEIL_H, b.cz]}>
+        <planeGeometry args={[HALL_W, HALL_W]} />
+        <meshStandardMaterial color="#6f6a62" roughness={0.95} side={THREE.FrontSide} />
+      </mesh>
+      {[-18, -9, 0, 9, 18].map((x) => (
+        <mesh key={`tr${x}`} position={[b.cx + x, CEIL_H - 0.9, b.cz]}>
+          <boxGeometry args={[0.18, 0.18, 62]} />
+          <meshStandardMaterial color="#8d8378" metalness={0.45} roughness={0.6} />
         </mesh>
       ))}
       {[-18, -6, 6, 18].map((z) => (
-        <mesh key={`tz${z}`} position={[0, 6.45, z]}>
-          <boxGeometry args={[46, 0.16, 0.16]} />
-          <meshStandardMaterial color="#3a3f45" metalness={0.5} roughness={0.6} />
+        <mesh key={`tz${z}`} position={[b.cx, CEIL_H - 1.05, b.cz + z]}>
+          <boxGeometry args={[52, 0.16, 0.16]} />
+          <meshStandardMaterial color="#8d8378" metalness={0.45} roughness={0.6} />
         </mesh>
       ))}
 
-      {/* high bay lights so the surroundings are not pitch black */}
-      {[[-8, 12], [8, 12], [-8, -12], [8, -12], [0, 0]].map(([x, z], i) => (
-        <pointLight key={`hb${i}`} position={[x, 6.2, z]} intensity={28} distance={26}
-          color="#cfd8e3" />
-      ))}
+      {/* Warm high bays on a grid. These are what lift the hall out of the
+          dull near-black it used to sit in. */}
+      {[-12, 0, 12].flatMap((x) => [-12, 0, 12].map((z) => [x, z] as const))
+        .map(([x, z], i) => (
+          <group key={`hb${i}`} position={[b.cx + x, CEIL_H - 1.3, b.cz + z]}>
+            <mesh>
+              <cylinderGeometry args={[0.34, 0.46, 0.2, 16]} />
+              <meshStandardMaterial color="#c9bfae" metalness={0.4} roughness={0.5} />
+            </mesh>
+            <mesh position={[0, -0.11, 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <circleGeometry args={[0.36, 20]} />
+              <meshBasicMaterial color="#ffe9c4" toneMapped={false} />
+            </mesh>
+            <pointLight position={[0, -0.4, 0]} intensity={70} distance={34}
+              color="#ffcf8f" />
+          </group>
+        ))}
+      </>}
     </group>
   );
 }
@@ -340,26 +408,39 @@ function Spot({ pos, target, shadow, beam }: {
   );
 }
 
+/** Lights that belong to the venue, not to a stall. Rendered once -- adding
+ *  them inside Stall would multiply the ambient by the number of stalls. */
+function GlobalLight({ cfg }: { cfg: Config }) {
+  const warm = cfg.showHall;
+  return (
+    <>
+      {/* The fill stays close to neutral so white tiles read as white; the
+          warmth comes from the high bays overhead, which pool on the floor. */}
+      <ambientLight intensity={cfg.ambient * (warm ? 0.7 : 0.55)}
+        color={warm ? '#fff6ec' : '#ffffff'} />
+      <hemisphereLight
+        args={[warm ? '#eef2fb' : '#eef3ff', warm ? '#ccc0ab' : '#8a8578',
+          cfg.ambient * (warm ? 0.8 : 0.5)]} />
+      <directionalLight position={[8, 13, 7]} intensity={cfg.ambient * 0.55}
+        color={warm ? '#fff6ea' : '#ffffff'} castShadow
+        shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+        shadow-camera-left={-20} shadow-camera-right={20}
+        shadow-camera-top={20} shadow-camera-bottom={-20} />
+    </>
+  );
+}
+
+/** The stall's own fascia-mounted spotlights. */
 function Lighting({ cfg }: { cfg: Config }) {
   const spots = useMemo(() => spotlights(cfg), [cfg.width, cfg.depth, cfg.openSides, cfg.mirror]);
   return (
     <>
-      <ambientLight intensity={cfg.ambient * 0.55} />
-      <hemisphereLight args={['#eef3ff', '#8a8578', cfg.ambient * 0.5]} />
-      <directionalLight position={[6, 9, 6]} intensity={cfg.ambient * 0.5} castShadow
-        shadow-mapSize-width={2048} shadow-mapSize-height={2048}
-        shadow-camera-left={-12} shadow-camera-right={12}
-        shadow-camera-top={12} shadow-camera-bottom={-12} />
       {spots.map((s, i) => (
         <Spot key={s.id} pos={s.pos} target={s.target} shadow={i < 4} beam={cfg.showSpotBeams} />
       ))}
     </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Furniture
-// ---------------------------------------------------------------------------
 
 function Counter({ tex, id, ctx }: { tex: THREE.Texture; id: SurfaceId; ctx: SurfaceCtx }) {
   return (
@@ -636,7 +717,7 @@ const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 /** Where a stall sits in the world, so a world-space drag can be read back
  *  into the stall's own coordinates. The rear stall is turned exactly 180
  *  degrees, which is why one sign flip covers both axes. */
-export interface Frame { zOff: number; flip: boolean }
+export interface Frame { x: number; z: number; flip: boolean }
 
 function Draggable({
   p, cfg, frame, onMove, onRotate, onGrab, onRelease, selected, onSelect,
@@ -658,7 +739,10 @@ function Draggable({
   const [hover, setHover] = useState(false);
 
   const sign = frame.flip ? -1 : 1;
-  const local = () => ({ x: sign * hit.x, z: sign * (hit.z - frame.zOff) });
+  const local = () => ({
+    x: sign * (hit.x - frame.x),
+    z: sign * (hit.z - frame.z),
+  });
 
   const STEP = Math.PI / 36;   // 5 degree detents
   const aimAt = (e: any) => {
@@ -862,21 +946,24 @@ export default function Scene({
 
   return (
     <group>
-      {/* hall floor */}
+      <GlobalLight cfg={cfg} />
+
+      {/* Base plane. The hall lays its tiled floor just above this; without
+          the hall it is the studio sweep the stall sits on. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[70, 70]} />
-        <meshStandardMaterial color={cfg.showHall ? '#4a4d52' : '#6e4b4b'} roughness={1} />
+        <planeGeometry args={[80, 80]} />
+        <meshStandardMaterial color={cfg.showHall ? '#d9d3c7' : '#6e4b4b'} roughness={1} />
       </mesh>
 
-      {cfg.showHall && view !== 'top' && <Hall cfg={cfg} />}
+      {cfg.showHall && <Hall cfg={cfg} view={view} />}
 
       {stallsOf(cfg).map((s) => {
-        const zOff = stallZ(cfg, s);
-        const flip = s === 'b';
+        const pose = stallPose(cfg, s);
         return (
-          <group key={s} position={[0, 0, zOff]} rotation={[0, flip ? Math.PI : 0, 0]}>
+          <group key={s} position={[pose.x, 0, pose.z]} rotation={[0, pose.rotY, 0]}>
             <Stall
-              cfg={stallCfg(cfg, s)} stall={s} frame={{ zOff, flip }}
+              cfg={stallCfg(cfg, s)} stall={s}
+              frame={{ x: pose.x, z: pose.z, flip: pose.flip }}
               placements={placements.filter((p) => stallOf(p) === s)}
               tvs={tvs.filter((t) => stallOf(t) === s)}
               logoImg={logoImg}

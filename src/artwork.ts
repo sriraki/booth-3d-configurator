@@ -14,13 +14,12 @@ import type { Config, EdgeId, Placement, StallId } from './types';
 
 export type SurfaceId = string;
 
-export const nsOf = (stall: StallId) => (stall === 'a' ? '' : 'b/');
+export const nsOf = (stall: StallId) => (stall === 'a' ? '' : `${stall}/`);
 
 /** Split a surface id into the stall it belongs to and its bare id. */
 export function splitSurface(id: SurfaceId): { stall: StallId; bare: string } {
-  return id.startsWith('b/')
-    ? { stall: 'b', bare: id.slice(2) }
-    : { stall: 'a', bare: id };
+  const m = /^([bc])\//.exec(id);
+  return m ? { stall: m[1] as StallId, bare: id.slice(2) } : { stall: 'a', bare: id };
 }
 
 export type FitMode = 'cover' | 'contain' | 'stretch';
@@ -74,7 +73,9 @@ export function surfaceLabel(id: SurfaceId): string {
     : kind === 'kiosk' ? 'kiosk screen'
     : kind === 'tv' ? 'TV screen'
     : bare;
-  return stall === 'b' ? `rear stall · ${where}` : where;
+  if (stall === 'b') return `rear stall · ${where}`;
+  if (stall === 'c') return `diagonal stall · ${where}`;
+  return where;
 }
 
 // --- Resolution -------------------------------------------------------------

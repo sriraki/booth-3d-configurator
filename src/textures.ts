@@ -135,3 +135,36 @@ export function makeCarpetTexture(color: string) {
     ctx.putImageData(img, 0, 0);
   });
 }
+
+/**
+ * Indoor hall flooring: large white porcelain tiles with a faint grout line
+ * and a little per-tile variation, so a big floor doesn't read as one flat
+ * white plane. One canvas covers a 2 x 2 m patch of a 4-tile grid.
+ */
+export function makeTileTexture(tone = '#fcfcfb', grout = '#d2d0cb') {
+  const tex = canvasTexture(2, 2, (ctx, w, h) => {
+    ctx.fillStyle = grout;
+    ctx.fillRect(0, 0, w, h);
+    const n = 2;                 // 1 m tiles, legible from across the hall
+    const cell = w / n;
+    const gap = Math.max(1, Math.round(cell * 0.012));
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const v = 1 + (Math.random() - 0.5) * 0.035;
+        const c = new THREE.Color(tone).multiplyScalar(v);
+        ctx.fillStyle = `#${c.getHexString()}`;
+        ctx.fillRect(x * cell + gap, y * cell + gap, cell - gap * 2, cell - gap * 2);
+        // a soft sheen band, as polished porcelain catches the high bays
+        const g = ctx.createLinearGradient(
+          x * cell, y * cell, (x + 1) * cell, (y + 1) * cell);
+        g.addColorStop(0, 'rgba(255,255,255,0.00)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.07)');
+        g.addColorStop(1, 'rgba(255,255,255,0.00)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x * cell + gap, y * cell + gap, cell - gap * 2, cell - gap * 2);
+      }
+    }
+  });
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}

@@ -6,9 +6,10 @@ import Scene from './Scene';
 import { Controls, SpecPanel } from './Sidebar';
 import {
   autoLayout, autoLayoutAll, autoTvs, autoTvsAll, computeSpecs, wallsFor, fasciaEdges,
-  anchorFor, nextTvSlot, wallLength, pairDepth, stallCfg, stallLabel, stallOf, stallsOf,
+  anchorFor, nextTvSlot, wallLength, stallCfg, stallLabel, stallOf, stallsOf,
+  arrangementBounds, STALL_ROLE,
 } from './booth';
-import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES } from './constants';
+import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES, AISLE_W } from './constants';
 import type { Config, ItemType, Placement, StallId, Tv, TvMedia } from './types';
 import {
   DEFAULT_ARTWORK, buildArtworkTexture, loadImage, surfacePrint, surfaceLabel,
@@ -17,13 +18,17 @@ import {
 import * as store from './storage';
 
 const INITIAL: Config = {
-  width: 6, depth: 3, openSides: 2, mirror: false,
+  width: 6, depth: 3, openSides: 2, mirror: true,
   companyName: 'DEPARTMENT OF TECHNICAL EDUCATION',
   partner: true,
   partnerName: 'COMMISSIONERATE OF COLLEGIATE EDUCATION',
+  third: true,
+  thirdName: 'DEPARTMENT OF INTERMEDIATE EDUCATION',
+  thirdOpenSides: 2,
+  thirdMirror: true,          // opens its front and its left
   logo: null,
-  carpet: '#5a5f66', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
-  showSpotBeams: false, showHall: true, ambient: 0.55, chairsPerTable: 4,
+  carpet: '#6b6e72', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
+  showSpotBeams: false, showHall: true, ambient: 0.62, chairsPerTable: 4,
 };
 
 /** Drag events don't flow through R3F's pointer system, so the raycast for
@@ -48,35 +53,41 @@ function CameraRig({ view, cfg, controls }: { view: string; cfg: Config; control
     const fit = (w: number, h: number) =>
       Math.max((w / 2) / Math.tan(hFov / 2), (h / 2) / Math.tan(vFov / 2)) * 1.18;
 
-    // The block is as deep as the pair, and each stall's frontage is at one
-    // end of it -- so every camera is placed off the block, not off one stall.
-    const span = pairDepth(cfg);
-    const front = span / 2;
+    // Elevations look straight into one stall; hero and plan frame the whole
+    // arrangement, which with three stalls is much wider than any one of them.
+    const b = arrangementBounds(cfg);
+    const aZ = D / 2 + 0.025;            // centre of the front stall
+    const front = aZ + D / 2;            // its open frontage
     const dFront = fit(W + 0.8, TOTAL_H + 0.7);
-    const dHero  = fit(Math.max(W, span) * 1.3, TOTAL_H + 0.9);
-    const dTop   = fit(W + 1.2, span + 1.2);
+    const dHero  = fit(Math.max(b.w, b.d) * 1.02, TOTAL_H + 1.0);
+    const dTop   = fit(b.w + 2, b.d + 2);
 
     const map: Record<string, [number, number, number]> = {
-      hero:  [dHero * 0.50, Math.max(2.3, dHero * 0.34), front + dHero * 0.62],
+      // Kept under the hall deck, or the ceiling would hide everything.
+      hero:  [b.cx + dHero * 0.46, Math.min(8.6, Math.max(3, dHero * 0.52)),
+              b.cz + dHero * 0.70],
       front: [0, TOTAL_H * 0.55, front + dFront],
       rear:  [0, TOTAL_H * 0.55, -front - dFront],
-      eye:   [W * 0.24, 1.62, front - D * 0.25],
-      top:   [0.01, dTop, 0.02],
+      eye:   [W * 0.24, 1.62, aZ + D * 0.25],
+      top:   [b.cx + 0.01, dTop, b.cz + 0.02],
     };
     const p = map[view] ?? map.hero;
+    // Looking straight down, the default up vector is degenerate and the plan
+    // comes out rotated. Pinning it puts +x to the right and -z up the screen,
+    // so the plan reads the same way round as a drawn layout.
+    camera.up.set(0, view === 'top' ? 0 : 1, view === 'top' ? -1 : 0);
     camera.position.set(p[0], p[1], p[2]);
     if (controls.current) {
-      // Elevations look straight into one stall; hero and top frame the block.
-      const aZ = front - D / 2;        // centre of the front stall
-      const t = view === 'top' ? [0, 0, 0]
-        : view === 'eye' ? [0, 1.3, front - D]
+      const t = view === 'top' ? [b.cx, 0, b.cz]
+        : view === 'eye' ? [0, 1.3, aZ - D / 2]
         : view === 'rear' ? [0, TOTAL_H * 0.45, -aZ]
         : view === 'front' ? [0, TOTAL_H * 0.45, aZ]
-        : [0, TOTAL_H * 0.45, 0];
+        : [b.cx, TOTAL_H * 0.45, b.cz];
       controls.current.target.set(t[0], t[1], t[2]);
       controls.current.update();
     }
-  }, [view, cfg.width, cfg.depth, cfg.partner, camera, controls, size.width, size.height]);
+  }, [view, cfg.width, cfg.depth, cfg.partner, cfg.third, cfg.mirror,
+      camera, controls, size.width, size.height]);
   return null;
 }
 
@@ -109,7 +120,8 @@ export default function App() {
 
   // Any structural change rebuilds the layout from scratch.
   const structKey =
-    `${cfg.width}|${cfg.depth}|${cfg.openSides}|${cfg.mirror}|${cfg.partner}`;
+    `${cfg.width}|${cfg.depth}|${cfg.openSides}|${cfg.mirror}|${cfg.partner}` +
+    `|${cfg.third}|${cfg.thirdOpenSides}|${cfg.thirdMirror}`;
   const prevKey = useRef(structKey);
   useEffect(() => {
     if (prevKey.current === structKey) return;
@@ -120,7 +132,10 @@ export default function App() {
   }, [structKey, cfg]);
 
   // Switching stalls must not leave the controls pointing at the other one.
-  useEffect(() => { if (!cfg.partner) setStall('a'); }, [cfg.partner]);
+  useEffect(() => {
+    if (!cfg.partner && stall === 'b') setStall('a');
+    if (!cfg.third && stall === 'c') setStall('a');
+  }, [cfg.partner, cfg.third, stall]);
 
   // The stall currently being edited, with its own name and open corner.
   const scfg = useMemo(() => stallCfg(cfg, stall), [cfg, stall]);
@@ -129,12 +144,22 @@ export default function App() {
 
   /** Writes to the branding field that belongs to the stall being edited. */
   const setStallCfg = (p: Partial<Config>) => {
-    if (stall === 'b' && 'companyName' in p) {
-      const { companyName, ...rest } = p;
-      set({ ...rest, partnerName: companyName as string });
-      return;
+    if (stall === 'a') { set(p); return; }
+    const out: Partial<Config> = { ...p };
+    if ('companyName' in p) {
+      delete out.companyName;
+      const name = p.companyName as string;
+      if (stall === 'b') out.partnerName = name; else out.thirdName = name;
     }
-    set(p);
+    if (stall === 'b') {
+      // The rear stall is the same structure seen from the other side, so its
+      // open sides are the block's -- with `mirror` read back through the flip.
+      if ('mirror' in p) out.mirror = !(p.mirror as boolean);
+    } else {
+      if ('openSides' in p) { delete out.openSides; out.thirdOpenSides = p.openSides; }
+      if ('mirror' in p) { delete out.mirror; out.thirdMirror = p.mirror as boolean; }
+    }
+    set(out);
   };
 
   /** Replaces this stall's screens, leaving the other stall's alone. */
@@ -467,7 +492,7 @@ export default function App() {
     const url = gl.domElement.toDataURL('image/png');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `booth_${cfg.width}x${cfg.depth}${cfg.partner ? '_pair' : ''}_${cfg.openSides}side.png`;
+    a.download = `booth_${cfg.width}x${cfg.depth}_${stallsOf(cfg).length}stall.png`;
     a.click();
   };
 
@@ -478,7 +503,7 @@ export default function App() {
       const walls = wallsFor(sc.openSides, sc.mirror);
       const edges = fasciaEdges(sc.openSides, sc.mirror);
       return [
-        `${id === 'a' ? 'FRONT' : 'REAR'} STALL — ${stallLabel(cfg, id)}`,
+        `${STALL_ROLE[id].toUpperCase()} STALL — ${stallLabel(cfg, id)}`,
         `  Footprint        ${sc.width} x ${sc.depth} m  (${sc.width * sc.depth} sqm)`,
         `  Open sides       ${sc.openSides}${sc.openSides === 2 ? (sc.mirror ? ' (opens left)' : ' (opens right)') : ''}`,
         `  Walls            ${walls.join(', ')}`,
@@ -492,8 +517,11 @@ export default function App() {
       `BOOTH SPECIFICATION`,
       ss.map((id) => stallLabel(cfg, id)).join('  |  '),
       ``,
-      `Arrangement        ${cfg.partner ? 'Back-to-back pair, one shared wall line' : 'Single stall'}`,
-      `Overall block      ${cfg.width} x ${pairDepth(cfg).toFixed(2)} m`,
+      `Arrangement        ${ss.length} stall${ss.length > 1 ? 's' : ''}` +
+        `${cfg.partner ? ' — back-to-back pair sharing one wall line' : ''}` +
+        `${cfg.third ? ', plus one diagonally across the aisle' : ''}`,
+      `Plot envelope      ${arrangementBounds(cfg).w.toFixed(2)} x ${arrangementBounds(cfg).d.toFixed(2)} m` +
+        ` (walkways ${AISLE_W} m)`,
       `Total area         ${specs.area} sqm / ${Math.round(specs.areaFt)} sq ft`,
       `Fascia total       ${specs.fasciaLen.toFixed(1)} m`,
       `Overall height     2500 mm (2200 panel zone + 300 fascia)`,
@@ -527,7 +555,7 @@ export default function App() {
     const blob = new Blob([L], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `booth_${cfg.width}x${cfg.depth}${cfg.partner ? '_pair' : ''}_spec.txt`;
+    a.download = `booth_${cfg.width}x${cfg.depth}_${stallsOf(cfg).length}stall_spec.txt`;
     a.click();
   };
 
@@ -536,7 +564,7 @@ export default function App() {
       <Controls
         cfg={cfg} set={set}
         stall={stall} setStall={setStall} scfg={scfg}
-        stallNames={stallsOf(cfg).map((s) => stallLabel(cfg, s))}
+        stalls={stallsOf(cfg)} stallName={(s) => stallLabel(cfg, s)}
         setStallCfg={setStallCfg}
         tvs={myTvs} setTvs={setMyTvs}
         placements={myPlacements} setPlacements={setMyPlacements}
@@ -575,8 +603,8 @@ export default function App() {
           }}
           onPointerMissed={() => setSelected(null)}
         >
-          <color attach="background" args={[cfg.showHall ? '#2a2d32' : '#1a1d21']} />
-          <fog attach="fog" args={[cfg.showHall ? '#2a2d32' : '#1a1d21', 26, 70]} />
+          <color attach="background" args={[cfg.showHall ? '#cfcdc8' : '#1a1d21']} />
+          <fog attach="fog" args={[cfg.showHall ? '#cfcdc8' : '#1a1d21', 44, 96]} />
           <Capture sink={three} />
           <CameraRig view={view} cfg={cfg} controls={controls} />
           <Suspense fallback={null}>
@@ -594,7 +622,8 @@ export default function App() {
             />
           </Suspense>
           <ContactShadows position={[0, 0.012, 0]} opacity={0.42}
-            scale={Math.max(cfg.width, pairDepth(cfg)) * 2.4} blur={2.4} far={4} />
+            scale={Math.max(arrangementBounds(cfg).w, arrangementBounds(cfg).d) * 1.6}
+            blur={2.4} far={4} />
           <OrbitControls
             ref={controls} enabled={orbit}
             enableDamping dampingFactor={0.08}

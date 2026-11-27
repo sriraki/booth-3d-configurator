@@ -7,10 +7,11 @@ import type { Artwork, SurfaceId } from './artwork';
 
 const DB_NAME = 'booth3d';
 const STORE = 'state';
-// Bumped when the saved shape changes in a way a merge cannot repair. The
-// back-to-back pair re-keys every surface and every placement, so a v1
-// session is left behind rather than half-restored.
-const KEY = 'current-v2';
+// Bumped when the saved shape changes in a way a merge cannot repair. Each
+// stall added re-keys every surface and every placement, and the arrangement
+// itself changed, so an older session is left behind rather than half
+// restored into a layout it was never drawn for.
+const KEY = 'current-v3';
 const VERSION = 1;
 
 function open(): Promise<IDBDatabase> {

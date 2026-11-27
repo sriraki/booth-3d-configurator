@@ -1,6 +1,6 @@
 import {
   PANEL_PITCH, PANEL_PRINT_W, PANEL_PRINT_H, FASCIA_PRINT_H, FASCIA_PRINT_W_BAY,
-  SQM_TO_SQFT, TV_SIZES, TV_DEFAULT_IDX, FOOTPRINT, TOTAL_H, WALL_T,
+  SQM_TO_SQFT, TV_SIZES, TV_DEFAULT_IDX, FOOTPRINT, TOTAL_H, WALL_T, AISLE_W,
 } from './constants';
 import type { Config, EdgeId, ItemType, Placement, StallId, Tv, WallId } from './types';
 
@@ -21,37 +21,83 @@ export function fasciaEdges(openSides: 1 | 2 | 3, mirror: boolean): EdgeId[] {
   return ['front', 'left', 'right'];
 }
 
-// --- Back-to-back pair -----------------------------------------------------
-// Stall 'a' faces +z. Stall 'b' is the same stall rotated 180 degrees and
-// pushed behind it, so the two back walls meet skin to skin at z = 0. Every
-// piece of geometry below is written in a single stall's local frame; the
-// pair only exists as two group transforms in the scene.
+// --- The arrangement -------------------------------------------------------
+// Three stalls on one plot. 'a' and 'b' are backed onto each other and share
+// a wall line; 'c' stands diagonally across the aisle crossing. Every piece of
+// geometry below is written in a single stall's local frame -- origin at its
+// floor centre, front edge at +z -- and the arrangement exists only as a pose
+// per stall.
 
-export const STALLS: StallId[] = ['a', 'b'];
+export const STALLS: StallId[] = ['a', 'b', 'c'];
 
-/** The stalls actually built: just 'a' unless a partner is switched on. */
-export const stallsOf = (cfg: Config): StallId[] => (cfg.partner ? STALLS : ['a']);
+export const stallsOf = (cfg: Config): StallId[] =>
+  STALLS.filter((s) => s === 'a' || (s === 'b' && cfg.partner) || (s === 'c' && cfg.third));
 
 export const stallOf = (x: { stall?: StallId }): StallId => x.stall ?? 'a';
 
-/** The config as that stall sees it: its own name, its own open corner.
- *  `mirror` is deliberately NOT flipped. The rear stall is already turned
- *  180 degrees, so keeping the same local open side puts it on the opposite
- *  side of the block -- the pinwheel you want, rather than both stalls
- *  crowding the same flank. */
+export const STALL_ROLE: Record<StallId, string> = {
+  a: 'front', b: 'rear', c: 'diagonal',
+};
+
+/** The config as that stall sees it: its own name and its own open sides.
+ *  'b' carries the opposite `mirror` because it is turned 180 degrees -- the
+ *  flip and the rotation cancel, leaving both stalls open on the SAME flank
+ *  of the block, their two openings parallel and continuous. */
 export function stallCfg(cfg: Config, s: StallId): Config {
   if (s === 'a') return cfg;
-  return { ...cfg, companyName: cfg.partnerName };
+  if (s === 'b') return { ...cfg, mirror: !cfg.mirror, companyName: cfg.partnerName };
+  return {
+    ...cfg,
+    openSides: cfg.thirdOpenSides,
+    mirror: cfg.thirdMirror,
+    companyName: cfg.thirdName,
+  };
 }
 
 export const stallLabel = (cfg: Config, s: StallId) =>
-  (s === 'a' ? cfg.companyName : cfg.partnerName) || (s === 'a' ? 'Stall A' : 'Stall B');
+  stallCfg(cfg, s).companyName || `Stall ${s.toUpperCase()}`;
 
-/** World z of a stall's centre. The half wall keeps the two skins apart. */
-export const stallZ = (cfg: Config, s: StallId) =>
-  (s === 'a' ? 1 : -1) * (cfg.depth / 2 + WALL_T / 2);
+/** Where a stall stands, and which way it faces. Only 0 and 180 degrees are
+ *  used, which is why one sign covers both axes of the inverse transform. */
+export interface Pose { x: number; z: number; rotY: number; flip: boolean }
 
-/** Front-to-back size of the whole arrangement. */
+/** Sideways offset of the diagonal stall from the block, metres. Taken from
+ *  the client's layout: its near edge clears the block's walled flank by a
+ *  shoulder rather than lining up with it. */
+export const DIAG_SHOULDER = 1;
+
+export function stallPose(cfg: Config, s: StallId): Pose {
+  const back = cfg.depth / 2 + WALL_T / 2;   // half the back-to-back block
+  if (s === 'a') return { x: 0, z: back, rotY: 0, flip: false };
+  if (s === 'b') return { x: 0, z: -back, rotY: Math.PI, flip: true };
+  // Diagonally off the block's far corner, a walkway clear of it, facing the
+  // same way as the front stall so its frontage opens onto that walkway.
+  return {
+    x: cfg.width + DIAG_SHOULDER,
+    z: -(back + AISLE_W + cfg.depth / 2),
+    rotY: 0,
+    flip: false,
+  };
+}
+
+/** Footprint of the whole arrangement in world coordinates. */
+export function arrangementBounds(cfg: Config) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const s of stallsOf(cfg)) {
+    const p = stallPose(cfg, s);
+    minX = Math.min(minX, p.x - cfg.width / 2);
+    maxX = Math.max(maxX, p.x + cfg.width / 2);
+    minZ = Math.min(minZ, p.z - cfg.depth / 2);
+    maxZ = Math.max(maxZ, p.z + cfg.depth / 2);
+  }
+  return {
+    minX, maxX, minZ, maxZ,
+    w: maxX - minX, d: maxZ - minZ,
+    cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2,
+  };
+}
+
+/** Front-to-back size of the back-to-back block alone. */
 export const pairDepth = (cfg: Config) =>
   cfg.partner ? cfg.depth * 2 + WALL_T : cfg.depth;
 
