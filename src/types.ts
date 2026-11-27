@@ -14,6 +14,9 @@ export interface Placement {
   rotY: number;
 }
 
+/** Starting furniture for one stall, overriding the size-based defaults. */
+export type Kit = Partial<Record<ItemType, number>>;
+
 export interface Tv {
   id: string;
   stall?: StallId;
@@ -36,6 +39,8 @@ export interface Config {
   thirdName: string;
   thirdOpenSides: 1 | 2 | 3;
   thirdMirror: boolean;
+  /** Per-stall furniture overrides. Stalls not listed take the defaults. */
+  kit: Partial<Record<StallId, Kit>>;
   logo: string | null;      // data URL
   carpet: string;
   fasciaColor: string;

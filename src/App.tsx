@@ -26,10 +26,21 @@ const INITIAL: Config = {
   thirdName: 'DEPARTMENT OF INTERMEDIATE EDUCATION',
   thirdOpenSides: 2,
   thirdMirror: true,          // opens its front and its left
+  kit: {
+    a: { table: 1, kiosk: 0 },   // DTE: one coffee table, no kiosk
+    b: { table: 0 },             // CCE: no coffee table
+    c: { table: 1, kiosk: 0 },   // DIE: one coffee table, no kiosk
+  },
   logo: null,
   carpet: '#6b6e72', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
   showSpotBeams: false, showHall: true, ambient: 0.62, chairsPerTable: 4,
 };
+
+/** Everything that decides how many stalls there are, where they stand and
+ *  what each one starts with. A change here rebuilds the layout. */
+const keyOf = (c: Partial<Config>) =>
+  [c.width, c.depth, c.openSides, c.mirror, c.partner,
+   c.third, c.thirdOpenSides, c.thirdMirror, JSON.stringify(c.kit ?? null)].join('|');
 
 /** Drag events don't flow through R3F's pointer system, so the raycast for
  *  drop targeting needs direct access to the scene, camera and canvas. */
@@ -119,9 +130,7 @@ export default function App() {
   const set = (p: Partial<Config>) => setCfg((c) => ({ ...c, ...p }));
 
   // Any structural change rebuilds the layout from scratch.
-  const structKey =
-    `${cfg.width}|${cfg.depth}|${cfg.openSides}|${cfg.mirror}|${cfg.partner}` +
-    `|${cfg.third}|${cfg.thirdOpenSides}|${cfg.thirdMirror}`;
+  const structKey = keyOf(cfg);
   const prevKey = useRef(structKey);
   useEffect(() => {
     if (prevKey.current === structKey) return;
@@ -456,7 +465,10 @@ export default function App() {
         // Merge over INITIAL: a session saved before a setting existed would
         // otherwise restore it as undefined and silently disable the feature.
         const cfg = { ...INITIAL, ...snap.cfg };
-        prevKey.current = `${cfg.width}|${cfg.depth}|${cfg.openSides}|${cfg.mirror}`;
+        // Seeded from the RAW snapshot, not the merged config: a session saved
+        // before a structural setting existed then reads as a change, and the
+        // layout effect rebuilds it instead of restoring stale placements.
+        prevKey.current = keyOf(snap.cfg);
         setCfg(cfg);
         setPlacements(snap.placements);
         setTvs(snap.tvs);

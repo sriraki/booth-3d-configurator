@@ -179,9 +179,15 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
   }
 }
 
+/** What a stall starts with: the size-based defaults, with this stall's own
+ *  overrides on top. A count of 0 leaves the item out entirely. */
+export function countsFor(cfg: Config, stall: StallId) {
+  return { ...defaultCounts(cfg.width * cfg.depth), ...(cfg.kit?.[stall] ?? {}) };
+}
+
 export function autoLayout(cfg: Config, stall: StallId = 'a'): Placement[] {
   const sc = stallCfg(cfg, stall);
-  const c = defaultCounts(sc.width * sc.depth);
+  const c = countsFor(cfg, stall);
   const out: Placement[] = [];
   for (const type of ITEM_TYPES) {
     for (let i = 0; i < c[type]; i++) {
