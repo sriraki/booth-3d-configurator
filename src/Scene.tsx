@@ -202,30 +202,10 @@ function Fascia({ cfg, texFor, ctx }: { cfg: Config; texFor: (len: number) => TH
 }
 
 // ---------------------------------------------------------------------------
-// Exhibition hall surroundings. Neighbouring stalls, aisle carpet and a truss
-// ceiling give the render a sense of scale and stop the stall floating in a
-// void. Deliberately low detail: it is context, never the subject.
+// Exhibition hall surroundings: aisle carpet, truss ceiling and high bays.
+// Enough to give the render a sense of scale and stop the stall floating in a
+// void, with no neighbouring stalls to compete with it.
 // ---------------------------------------------------------------------------
-
-const NEIGHBOUR_TONES = ['#d9d9d4', '#cfd4d8', '#e0ddd6', '#d2d6d2', '#dad6d9'];
-const FASCIA_TONES = ['#8f99a3', '#9c8f86', '#889a92', '#9a93a3', '#94a0a8'];
-
-function Neighbour({ w, d, tone, seed }: { w: number; d: number; tone: number; seed: number }) {
-  const h = 2.5;
-  return (
-    <group>
-      <mesh position={[0, h / 2, 0]} receiveShadow>
-        <boxGeometry args={[w, h, d]} />
-        <meshStandardMaterial color={NEIGHBOUR_TONES[tone % NEIGHBOUR_TONES.length]} roughness={0.96} />
-      </mesh>
-      {/* fascia band facing the aisle */}
-      <mesh position={[0, h - 0.15, d / 2 + 0.03]}>
-        <boxGeometry args={[w, 0.3, 0.07]} />
-        <meshStandardMaterial color={FASCIA_TONES[seed % FASCIA_TONES.length]} roughness={0.85} />
-      </mesh>
-    </group>
-  );
-}
 
 function Hall({ cfg }: { cfg: Config }) {
   const { width: W, depth: D } = cfg;
@@ -239,17 +219,9 @@ function Hall({ cfg }: { cfg: Config }) {
         <meshStandardMaterial color="#6d3d3d" roughness={1} />
       </mesh>
 
-      {/* No opposite row and no side neighbours: the stall is shown standing
-          clear in the hall, so nothing competes with it in a client preview.
-          Only the back-to-back row remains, behind the closed back wall. */}
-
-      {/* back-to-back row behind the stall */}
-      {[-1, 0, 1].map((i) => (
-        <group key={`back${i}`} position={[i * (W + 0.3), 0, -D / 2 - 1.7]}
-          rotation={[0, Math.PI, 0]}>
-          <Neighbour w={W} d={3.2} tone={i + 4} seed={i + 3} />
-        </group>
-      ))}
+      {/* No neighbouring stalls at all: the booth is shown standing clear so
+          nothing competes with it in a client preview. Carpet, ceiling, truss
+          and high bays are all that remain of the hall. */}
 
       {/* hall ceiling and a few truss runs well above the stalls */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 7.5, 0]}>
