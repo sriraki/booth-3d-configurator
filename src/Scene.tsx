@@ -1,0 +1,502 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { useThree } from '@react-three/fiber';
+import {
+  PANEL_LEAF, PANEL_ZONE_H, POST_W, TOTAL_H, FASCIA_H, FASCIA_PRINT_H, WALL_T,
+  COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_CENTRE_H, TV_DEPTH,
+} from './constants';
+import {
+  wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, spotlights,
+} from './booth';
+import type { Config, EdgeId, Placement, Tv, WallId } from './types';
+import { makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture } from './textures';
+
+const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
+const PANEL_MAT = { color: '#f4f4f1', roughness: 0.92, metalness: 0.0 };
+
+// ---------------------------------------------------------------------------
+// Structure
+// ---------------------------------------------------------------------------
+
+function Walls({ cfg }: { cfg: Config }) {
+  const { width: W, depth: D } = cfg;
+  const walls = wallsFor(cfg.openSides, cfg.mirror);
+  return (
+    <group>
+      {walls.map((w) => {
+        const n = panelsOnWall(w, W, D);
+        const len = wallLength(w, W, D);
+        return (
+          <group key={w}>
+            {Array.from({ length: n }, (_, i) => {
+              const p = wallPoint(w, i + 0.5, W, D);
+              return (
+                <mesh key={`p${i}`} position={[p.x, PANEL_ZONE_H / 2, p.z]} rotation={[0, p.rotY, 0]} castShadow receiveShadow>
+                  <boxGeometry args={[PANEL_LEAF, PANEL_ZONE_H, WALL_T]} />
+                  <meshStandardMaterial {...PANEL_MAT} />
+                </mesh>
+              );
+            })}
+            {Array.from({ length: n + 1 }, (_, i) => {
+              const p = wallPoint(w, i, W, D);
+              return (
+                <mesh key={`u${i}`} position={[p.x, (TOTAL_H - FASCIA_H) / 2, p.z]} rotation={[0, p.rotY, 0]} castShadow>
+                  <boxGeometry args={[POST_W, TOTAL_H - FASCIA_H, WALL_T * 1.3]} />
+                  <meshStandardMaterial {...ALU} />
+                </mesh>
+              );
+            })}
+            {/* top rail capping the panel zone */}
+            <mesh
+              position={
+                w === 'back' ? [0, PANEL_ZONE_H, -D / 2]
+                  : [w === 'left' ? -W / 2 : W / 2, PANEL_ZONE_H, 0]
+              }
+              rotation={[0, w === 'back' ? 0 : Math.PI / 2, 0]}
+            >
+              <boxGeometry args={[len, 0.05, WALL_T * 1.3]} />
+              <meshStandardMaterial {...ALU} />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function Fascia({ cfg, texFor }: { cfg: Config; texFor: (len: number) => THREE.Texture }) {
+  const { width: W, depth: D } = cfg;
+  const edges = fasciaEdges(cfg.openSides, cfg.mirror);
+  const y = TOTAL_H - FASCIA_H / 2;
+
+  return (
+    <group>
+      {edges.map((e: EdgeId) => {
+        const len = edgeLength(e, W, D);
+        const pos: [number, number, number] =
+          e === 'front' ? [0, y, D / 2] : [e === 'left' ? -W / 2 : W / 2, y, 0];
+        const rotY = e === 'front' ? 0 : e === 'left' ? -Math.PI / 2 : Math.PI / 2;
+        // Each run length gets its own artwork so text is never stretched.
+        const tex = texFor(len);
+        return (
+          <group key={e} position={pos} rotation={[0, rotY, 0]}>
+            <mesh castShadow>
+              <boxGeometry args={[len, FASCIA_H, 0.09]} />
+              <meshStandardMaterial attach="material-0" color="#e9e9e6" roughness={0.8} />
+              <meshStandardMaterial attach="material-1" color="#e9e9e6" roughness={0.8} />
+              <meshStandardMaterial attach="material-2" {...ALU} />
+              <meshStandardMaterial attach="material-3" {...ALU} />
+              <meshStandardMaterial attach="material-4" map={tex} roughness={0.75} />
+              <meshStandardMaterial attach="material-5" map={tex} roughness={0.75} />
+            </mesh>
+            {/* frame lip that eats 20 mm top and bottom of the print */}
+            <mesh position={[0, FASCIA_H / 2 - 0.012, 0]}>
+              <boxGeometry args={[len, 0.024, 0.1]} />
+              <meshStandardMaterial {...ALU} />
+            </mesh>
+            <mesh position={[0, -FASCIA_H / 2 + 0.012, 0]}>
+              <boxGeometry args={[len, 0.024, 0.1]} />
+              <meshStandardMaterial {...ALU} />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function Carpet({ cfg }: { cfg: Config }) {
+  const tex = useMemo(() => {
+    const t = makeCarpetTexture(cfg.carpet);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(cfg.width * 2, cfg.depth * 2);
+    return t;
+  }, [cfg.carpet, cfg.width, cfg.depth]);
+
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]} receiveShadow>
+      <planeGeometry args={[cfg.width, cfg.depth]} />
+      <meshStandardMaterial map={tex} roughness={0.98} />
+    </mesh>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lighting
+// ---------------------------------------------------------------------------
+
+function Spot({ pos, target, shadow, beam }: {
+  pos: [number, number, number]; target: [number, number, number];
+  shadow: boolean; beam: boolean;
+}) {
+  const light = useRef<THREE.SpotLight>(null);
+  const tgt = useRef<THREE.Object3D>(null);
+  useEffect(() => {
+    if (light.current && tgt.current) {
+      light.current.target = tgt.current;
+      light.current.target.updateMatrixWorld();
+    }
+  });
+
+  const dir = new THREE.Vector3(...target).sub(new THREE.Vector3(...pos));
+  const dist = dir.length();
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, -1, 0), dir.clone().normalize());
+  const e = new THREE.Euler().setFromQuaternion(q);
+
+  return (
+    <>
+      <object3D ref={tgt} position={target} />
+      {/* fitting body on the fascia truss */}
+      <group position={pos} rotation={[e.x, e.y, e.z]}>
+        <mesh position={[0, -0.06, 0]} castShadow>
+          <cylinderGeometry args={[0.045, 0.058, 0.13, 16]} />
+          <meshStandardMaterial color="#e8e8e8" metalness={0.6} roughness={0.35} />
+        </mesh>
+        <mesh position={[0, -0.125, 0]}>
+          <cylinderGeometry args={[0.042, 0.042, 0.012, 16]} />
+          <meshStandardMaterial color="#fff6e0" emissive="#ffd9a0" emissiveIntensity={2.2} />
+        </mesh>
+        {beam && (
+          <mesh position={[0, -dist / 2, 0]}>
+            <coneGeometry args={[dist * 0.26, dist, 24, 1, true]} />
+            <meshBasicMaterial color="#ffe6bb" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
+          </mesh>
+        )}
+      </group>
+      <spotLight
+        ref={light}
+        position={pos}
+        angle={0.52}
+        penumbra={0.65}
+        distance={14}
+        intensity={11}
+        color="#fff0d8"
+        castShadow={shadow}
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-bias={-0.0012}
+      />
+    </>
+  );
+}
+
+function Lighting({ cfg }: { cfg: Config }) {
+  const spots = useMemo(() => spotlights(cfg), [cfg.width, cfg.depth, cfg.openSides, cfg.mirror]);
+  return (
+    <>
+      <ambientLight intensity={cfg.ambient * 0.55} />
+      <hemisphereLight args={['#eef3ff', '#8a8578', cfg.ambient * 0.5]} />
+      <directionalLight position={[6, 9, 6]} intensity={cfg.ambient * 0.5} castShadow
+        shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+        shadow-camera-left={-12} shadow-camera-right={12}
+        shadow-camera-top={12} shadow-camera-bottom={-12} />
+      {spots.map((s, i) => (
+        <Spot key={s.id} pos={s.pos} target={s.target} shadow={i < 4} beam={cfg.showSpotBeams} />
+      ))}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Furniture
+// ---------------------------------------------------------------------------
+
+function Counter({ tex }: { tex: THREE.Texture }) {
+  return (
+    <group>
+      <mesh position={[0, COUNTER.h / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[COUNTER.w, COUNTER.h, COUNTER.d]} />
+        <meshStandardMaterial color="#fbfbf9" roughness={0.6} />
+      </mesh>
+      <mesh position={[0, COUNTER.h + 0.02, 0]} castShadow>
+        <boxGeometry args={[COUNTER.w + 0.06, 0.04, COUNTER.d + 0.06]} />
+        <meshStandardMaterial color="#eceff1" roughness={0.35} metalness={0.2} />
+      </mesh>
+      <mesh position={[0, COUNTER.faceH / 2 + 0.12, COUNTER.d / 2 + 0.003]}>
+        <planeGeometry args={[COUNTER.faceW, COUNTER.faceH]} />
+        <meshStandardMaterial map={tex} roughness={0.7} />
+      </mesh>
+    </group>
+  );
+}
+
+function RoundTable() {
+  return (
+    <group>
+      <mesh position={[0, RTABLE.h, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[RTABLE.r, RTABLE.r, 0.04, 36]} />
+        <meshStandardMaterial color="#fcfcfa" roughness={0.35} />
+      </mesh>
+      <mesh position={[0, RTABLE.h / 2, 0]} castShadow>
+        <cylinderGeometry args={[0.05, 0.06, RTABLE.h, 16]} />
+        <meshStandardMaterial color="#b9bfc5" metalness={0.7} roughness={0.35} />
+      </mesh>
+      <mesh position={[0, 0.02, 0]} castShadow>
+        <cylinderGeometry args={[0.26, 0.28, 0.035, 24]} />
+        <meshStandardMaterial color="#9aa1a8" metalness={0.7} roughness={0.4} />
+      </mesh>
+    </group>
+  );
+}
+
+function Chair() {
+  return (
+    <group>
+      <mesh position={[0, CHAIR.seatH, 0]} castShadow>
+        <boxGeometry args={[CHAIR.w, 0.06, CHAIR.d]} />
+        <meshStandardMaterial color="#2f3337" roughness={0.75} />
+      </mesh>
+      <mesh position={[0, CHAIR.seatH + 0.22, -CHAIR.d / 2 + 0.03]} rotation={[-0.14, 0, 0]} castShadow>
+        <boxGeometry args={[CHAIR.w, 0.42, 0.05]} />
+        <meshStandardMaterial color="#2f3337" roughness={0.75} />
+      </mesh>
+      {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
+        <mesh key={i} position={[sx * (CHAIR.w / 2 - 0.04), CHAIR.seatH / 2, sz * (CHAIR.d / 2 - 0.04)]} castShadow>
+          <cylinderGeometry args={[0.015, 0.015, CHAIR.seatH, 8]} />
+          <meshStandardMaterial color="#9aa1a8" metalness={0.75} roughness={0.35} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function SeatingCluster({ chairs }: { chairs: number }) {
+  const r = RTABLE.r + 0.46;
+  return (
+    <group>
+      <RoundTable />
+      {Array.from({ length: chairs }, (_, i) => {
+        const a = (i / chairs) * Math.PI * 2;
+        return (
+          <group key={i} position={[Math.sin(a) * r, 0, Math.cos(a) * r]} rotation={[0, a + Math.PI, 0]}>
+            <Chair />
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function Cabinet() {
+  return (
+    <group>
+      <mesh position={[0, CABINET.h / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[CABINET.w, CABINET.h, CABINET.d]} />
+        <meshStandardMaterial color="#f6f7f8" roughness={0.5} />
+      </mesh>
+      <mesh position={[0, CABINET.h / 2, CABINET.d / 2 + 0.002]}>
+        <planeGeometry args={[CABINET.w - 0.02, CABINET.h - 0.02]} />
+        <meshStandardMaterial color="#eef0f2" roughness={0.5} />
+      </mesh>
+      {[-1, 1].map((s) => (
+        <mesh key={s} position={[s * 0.06, CABINET.h * 0.55, CABINET.d / 2 + 0.012]}>
+          <boxGeometry args={[0.012, 0.11, 0.016]} />
+          <meshStandardMaterial color="#8d949b" metalness={0.8} roughness={0.3} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Kiosk({ tex }: { tex: THREE.Texture }) {
+  return (
+    <group>
+      <mesh position={[0, 0.02, 0]} castShadow>
+        <boxGeometry args={[KIOSK.w + 0.08, 0.04, KIOSK.d + 0.08]} />
+        <meshStandardMaterial color="#2b2f33" roughness={0.6} />
+      </mesh>
+      <mesh position={[0, KIOSK.h / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[KIOSK.w, KIOSK.h, KIOSK.d]} />
+        <meshStandardMaterial color="#f3f4f5" roughness={0.45} />
+      </mesh>
+      <mesh position={[0, KIOSK.h * 0.62, KIOSK.d / 2 + 0.012]}>
+        <boxGeometry args={[KIOSK.screenW + 0.04, KIOSK.screenH + 0.04, 0.02]} />
+        <meshStandardMaterial color="#111416" roughness={0.3} />
+      </mesh>
+      <mesh position={[0, KIOSK.h * 0.62, KIOSK.d / 2 + 0.024]}>
+        <planeGeometry args={[KIOSK.screenW, KIOSK.screenH]} />
+        <meshBasicMaterial map={tex} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function Bin() {
+  return (
+    <mesh position={[0, BIN.h / 2, 0]} castShadow>
+      <cylinderGeometry args={[BIN.r, BIN.r * 0.85, BIN.h, 20]} />
+      <meshStandardMaterial color="#6f767d" metalness={0.55} roughness={0.45} />
+    </mesh>
+  );
+}
+
+function TvUnit({ sizeIdx }: { sizeIdx: number }) {
+  const s = TV_SIZES[sizeIdx];
+  return (
+    <group>
+      {/* bracket clamped to the upright extrusion */}
+      <mesh position={[0, 0, -0.035]} castShadow>
+        <boxGeometry args={[0.16, 0.3, 0.05]} />
+        <meshStandardMaterial color="#44484c" metalness={0.6} roughness={0.4} />
+      </mesh>
+      <mesh castShadow>
+        <boxGeometry args={[s.w, s.h, TV_DEPTH]} />
+        <meshStandardMaterial color="#111315" roughness={0.35} metalness={0.3} />
+      </mesh>
+      <mesh position={[0, 0, TV_DEPTH / 2 + 0.002]}>
+        <planeGeometry args={[s.w - 0.03, s.h - 0.03]} />
+        <meshStandardMaterial color="#0d1b2a" emissive="#1d4e74" emissiveIntensity={0.85} roughness={0.2} />
+      </mesh>
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dragging
+// ---------------------------------------------------------------------------
+
+const FLOOR = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const SNAP = 0.05;
+const snap = (v: number) => Math.round(v / SNAP) * SNAP;
+
+function Draggable({
+  p, cfg, onMove, onGrab, onRelease, selected, onSelect, children,
+}: {
+  p: Placement; cfg: Config;
+  onMove: (id: string, x: number, z: number) => void;
+  onGrab: () => void; onRelease: () => void;
+  selected: boolean; onSelect: (id: string) => void;
+  children: React.ReactNode;
+}) {
+  const drag = useRef(false);
+  const off = useRef({ x: 0, z: 0 });
+  const hit = useMemo(() => new THREE.Vector3(), []);
+  const [hover, setHover] = useState(false);
+
+  const limX = cfg.width / 2 - 0.35;
+  const limZ = cfg.depth / 2 - 0.35;
+
+  return (
+    <group
+      position={[p.x, 0, p.z]}
+      rotation={[0, p.rotY, 0]}
+      onPointerOver={(e) => { e.stopPropagation(); setHover(true); document.body.style.cursor = 'grab'; }}
+      onPointerOut={() => { setHover(false); document.body.style.cursor = 'auto'; }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        (e.target as any).setPointerCapture?.(e.pointerId);
+        e.ray.intersectPlane(FLOOR, hit);
+        off.current = { x: p.x - hit.x, z: p.z - hit.z };
+        drag.current = true;
+        onSelect(p.id);
+        onGrab();
+        document.body.style.cursor = 'grabbing';
+      }}
+      onPointerMove={(e) => {
+        if (!drag.current) return;
+        e.stopPropagation();
+        if (!e.ray.intersectPlane(FLOOR, hit)) return;
+        const nx = THREE.MathUtils.clamp(snap(hit.x + off.current.x), -limX, limX);
+        const nz = THREE.MathUtils.clamp(snap(hit.z + off.current.z), -limZ, limZ);
+        onMove(p.id, nx, nz);
+      }}
+      onPointerUp={(e) => {
+        if (!drag.current) return;
+        e.stopPropagation();
+        (e.target as any).releasePointerCapture?.(e.pointerId);
+        drag.current = false;
+        onRelease();
+        document.body.style.cursor = 'grab';
+      }}
+    >
+      {children}
+      {(selected || hover) && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
+          <ringGeometry args={[0.52, 0.58, 40]} />
+          <meshBasicMaterial color={selected ? '#2f81f7' : '#8aa6c8'} transparent opacity={0.85} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+export default function Scene({
+  cfg, placements, tvs, onMove, setOrbit, selected, onSelect,
+}: {
+  cfg: Config; placements: Placement[]; tvs: Tv[];
+  onMove: (id: string, x: number, z: number) => void;
+  setOrbit: (v: boolean) => void;
+  selected: string | null; onSelect: (id: string | null) => void;
+}) {
+  const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!cfg.logo) { setLogoImg(null); return; }
+    const img = new Image();
+    img.onload = () => setLogoImg(img);
+    img.src = cfg.logo;
+  }, [cfg.logo]);
+
+  const fasciaTexs = useMemo(() => {
+    const lens = Array.from(new Set(
+      fasciaEdges(cfg.openSides, cfg.mirror).map((e) => edgeLength(e, cfg.width, cfg.depth))));
+    const m = new Map<number, THREE.Texture>();
+    for (const l of lens) {
+      m.set(l, makeFasciaTexture(cfg.companyName || 'COMPANY NAME', logoImg, l,
+        FASCIA_H, FASCIA_PRINT_H, cfg.fasciaColor, cfg.fasciaTextColor));
+    }
+    return m;
+  }, [cfg.companyName, logoImg, cfg.width, cfg.depth, cfg.openSides, cfg.mirror,
+      cfg.fasciaColor, cfg.fasciaTextColor]);
+  const texFor = (len: number) => fasciaTexs.get(len)!;
+  const counterTex = useMemo(
+    () => makeCounterTexture(cfg.companyName || 'COMPANY NAME', logoImg, cfg.fasciaTextColor),
+    [cfg.companyName, logoImg, cfg.fasciaTextColor]);
+  const kioskTex = useMemo(
+    () => makeKioskTexture(cfg.companyName || 'COMPANY NAME', '#4da3ff'),
+    [cfg.companyName]);
+
+  const { width: W, depth: D } = cfg;
+
+  return (
+    <group>
+      {/* hall floor */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[60, 60]} />
+        <meshStandardMaterial color="#6e4b4b" roughness={1} />
+      </mesh>
+
+      <Carpet cfg={cfg} />
+      <Walls cfg={cfg} />
+      <Fascia cfg={cfg} texFor={texFor} />
+      <Lighting cfg={cfg} />
+
+      {tvs.map((t) => {
+        const p = wallPoint(t.wall, t.t, W, D);
+        return (
+          <group key={t.id} position={[p.x, TV_CENTRE_H, p.z]} rotation={[0, p.rotY, 0]}>
+            <group position={[0, 0, WALL_T / 2 + TV_DEPTH / 2 + 0.02]}>
+              <TvUnit sizeIdx={t.sizeIdx} />
+            </group>
+          </group>
+        );
+      })}
+
+      {placements.map((p) => (
+        <Draggable
+          key={p.id} p={p} cfg={cfg} onMove={onMove}
+          onGrab={() => setOrbit(false)} onRelease={() => setOrbit(true)}
+          selected={selected === p.id} onSelect={onSelect}
+        >
+          {p.type === 'counter' && <Counter tex={counterTex} />}
+          {p.type === 'table' && <SeatingCluster chairs={cfg.chairsPerTable} />}
+          {p.type === 'cabinet' && <Cabinet />}
+          {p.type === 'kiosk' && <Kiosk tex={kioskTex} />}
+          {p.type === 'bin' && <Bin />}
+        </Draggable>
+      ))}
+    </group>
+  );
+}
