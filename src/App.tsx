@@ -4,8 +4,11 @@ import { OrbitControls, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import Scene from './Scene';
 import { Controls, SpecPanel } from './Sidebar';
-import { autoLayout, autoTvs, computeSpecs, wallsFor, fasciaEdges, anchorFor } from './booth';
-import { TOTAL_H } from './constants';
+import {
+  autoLayout, autoTvs, computeSpecs, wallsFor, fasciaEdges, anchorFor,
+  nextTvSlot, wallLength,
+} from './booth';
+import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES } from './constants';
 import type { Config, ItemType, Placement, Tv, TvMedia } from './types';
 import {
   DEFAULT_ARTWORK, buildArtworkTexture, loadImage, surfacePrint, surfaceLabel,
@@ -124,6 +127,24 @@ export default function App() {
     });
 
   const countOf = (type: ItemType) => placements.filter((p) => p.type === type).length;
+
+  const addTv = () => {
+    const slot = nextTvSlot(cfg, tvs, TV_DEFAULT_IDX);
+    if (slot) {
+      setTvs([...tvs, { id: `tv-${Date.now()}`, ...slot, sizeIdx: TV_DEFAULT_IDX }]);
+      return;
+    }
+    // No clear run left. Add it anyway, but offset so it is visibly a second
+    // screen rather than hidden inside the first, and say why it looks tight.
+    const wall = wallsFor(cfg.openSides, cfg.mirror)[0];
+    const len = wallLength(wall, cfg.width, cfg.depth);
+    const t = Math.min(len - 0.3, 0.3 + tvs.length * 0.4);
+    setTvs([...tvs, { id: `tv-${Date.now()}`, wall, t, sizeIdx: TV_DEFAULT_IDX }]);
+    setToast(
+      `No clear space left for a ${TV_SIZES[TV_DEFAULT_IDX].label} screen — ` +
+      `added overlapping. Use a smaller size or move it along the wall.`,
+    );
+  };
 
   const onRotate = (id: string, rotY: number) =>
     setPlacements((ps) => ps.map((p) => (p.id === id ? { ...p, rotY } : p)));
@@ -458,6 +479,7 @@ export default function App() {
         rotateMode={rotateMode} setRotateMode={setRotateMode}
         removeById={removeById} duplicateById={duplicateById}
         onSelectItem={setSelected}
+        addTv={addTv}
         tvMedia={tvMedia} updateTvMedia={updateTvMedia}
         clearTvMedia={clearTvMedia} setAllPlaying={setAllPlaying}
         assignTvMedia={assignTvMedia}

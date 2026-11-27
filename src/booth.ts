@@ -140,6 +140,39 @@ export function autoTvs(cfg: Config): Tv[] {
   return out;
 }
 
+/**
+ * Where to put a newly added TV. Previously every new screen went to the wall
+ * centre, landing exactly on top of the one already there -- the stall looked
+ * unchanged and the screen appeared not to have been added at all.
+ * Returns the first gap on any wall that actually fits, else null.
+ */
+export function nextTvSlot(
+  cfg: Config, tvs: Tv[], sizeIdx: number,
+): { wall: WallId; t: number } | null {
+  const w = TV_SIZES[sizeIdx].w;
+  const GAP = 0.2;      // clear space either side of a screen
+  const EDGE = 0.15;    // keep clear of the corner uprights
+
+  for (const wall of wallsFor(cfg.openSides, cfg.mirror)) {
+    const len = wallLength(wall, cfg.width, cfg.depth);
+    const taken = tvs
+      .filter((t) => t.wall === wall)
+      .map((t) => {
+        const half = TV_SIZES[t.sizeIdx].w / 2 + GAP;
+        return { a: t.t - half, b: t.t + half };
+      })
+      .sort((p, q) => p.a - q.a);
+
+    let cursor = EDGE;
+    for (const o of taken) {
+      if (o.a - cursor >= w) return { wall, t: cursor + w / 2 };
+      cursor = Math.max(cursor, o.b);
+    }
+    if (len - EDGE - cursor >= w) return { wall, t: cursor + w / 2 };
+  }
+  return null;
+}
+
 // --- Lighting --------------------------------------------------------------
 
 export interface SpotSpec { id: string; pos: [number, number, number]; target: [number, number, number] }

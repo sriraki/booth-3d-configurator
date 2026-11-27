@@ -23,6 +23,7 @@ export function Controls({
   addItem, removeItem, countOf,
   selectedItem, onRotate, removeById, duplicateById, onSelectItem,
   rotateMode, setRotateMode,
+  addTv,
   tvMedia, updateTvMedia, clearTvMedia, setAllPlaying, assignTvMedia,
   artworks, selectedSurface, onPickSurface, updateArt, clearArt,
   showSafeArea, setShowSafeArea, assign,
@@ -32,6 +33,7 @@ export function Controls({
   placements: Placement[]; setPlacements: (p: Placement[]) => void;
   onReset: () => void;
   view: string; setView: (v: string) => void;
+  addTv: () => void;
   tvMedia: Record<string, TvMedia>;
   updateTvMedia: (id: string, patch: Partial<TvMedia>) => void;
   clearTvMedia: (id: string) => void;
@@ -57,10 +59,6 @@ export function Controls({
 }) {
   const walls = wallsFor(cfg.openSides, cfg.mirror);
 
-  const addTv = () => {
-    const wall: WallId = walls[0];
-    setTvs([...tvs, { id: `tv-${Date.now()}`, wall, t: wallLength(wall, cfg.width, cfg.depth) / 2, sizeIdx: 3 }]);
-  };
   const upTv = (id: string, patch: Partial<Tv>) =>
     setTvs(tvs.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
