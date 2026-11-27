@@ -28,7 +28,7 @@ export function Controls({
   tvMedia, updateTvMedia, clearTvMedia, setAllPlaying, assignTvMedia,
   artworks, selectedSurface, onPickSurface, updateArt, clearArt,
   showSafeArea, setShowSafeArea, assign,
-  exportW, setExportW, exportImage,
+  exportW, setExportW, exportImage, exportAllAngles, angles,
 }: {
   cfg: Config; set: (p: Partial<Config>) => void;
   /** The stall being edited, and a setter that writes to its own fields. */
@@ -64,6 +64,8 @@ export function Controls({
   assign: (id: SurfaceId, f: File) => void;
   exportW: number; setExportW: (w: number) => void;
   exportImage: (w: number) => void;
+  exportAllAngles: (w: number) => void;
+  angles: string[];
 }) {
   const walls = wallsFor(scfg.openSides, scfg.mirror);
 
@@ -495,6 +497,13 @@ export function Controls({
             <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v}</button>
           ))}
         </div>
+        <div className="note">Angles of the <b>{STALL_ROLE[stall]}</b> stall</div>
+        <div className="seg wrap">
+          {angles.map((a) => (
+            <button key={a} className={view === `angle:${a}` ? 'on' : ''}
+              onClick={() => setView(`angle:${a}`)}>{a}</button>
+          ))}
+        </div>
         <button className="ghost full" onClick={onReset}>Reset layout</button>
       </section>
 
@@ -513,6 +522,12 @@ export function Controls({
         <button className="full" onClick={() => exportImage(exportW)}>
           Export PNG · {exportW} px wide
         </button>
+        <button className="ghost full" onClick={() => exportAllAngles(exportW)}>
+          Export all {angles.length} angles of this stall
+        </button>
+        <div className="note">
+          {angles.join(' · ')} — saved one file each, named for the stall.
+        </div>
       </section>
     </aside>
   );

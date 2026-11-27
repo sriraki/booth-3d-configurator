@@ -5,6 +5,7 @@ import {
   PANEL_LEAF, PANEL_ZONE_H, POST_W, TOTAL_H, FASCIA_H, FASCIA_PRINT_H, WALL_T,
   COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_DEPTH, tvCentreH,
   AISLE_W, STEP, STEP_HEIGHTS, STEP_LABEL_H, STEP_TOPICS,
+  GCASE, STANDEE, PHOTO, MCASE, MCASE_TITLE,
 } from './constants';
 import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, edgePoint,
@@ -16,7 +17,8 @@ import {
 } from './artwork';
 import {
   makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture,
-  makeTileTexture, makeStepLabelTexture,
+  makeTileTexture, makeStepLabelTexture, makeStandeeTexture, makePhotoBackdrop,
+  makePlinthTexture,
 } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -731,6 +733,217 @@ function SolarFarm() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Display units: glass book cases, cutout standees, the photo booth and the
+// model vitrine. Each is a self-contained item that can be added, removed,
+// dragged and turned like any other piece of furniture.
+// ---------------------------------------------------------------------------
+
+const GLASS = {
+  color: '#cfe3ee', transparent: true, opacity: 0.17,
+  roughness: 0.05, metalness: 0.1, side: THREE.DoubleSide,
+} as const;
+const ALU_EDGE = { color: '#b8bfc6', metalness: 0.8, roughness: 0.3 };
+
+/** Four uprights and a cap, the frame a vitrine actually has. */
+function Vitrine({ w, d, h, y }: { w: number; d: number; h: number; y: number }) {
+  const t = 0.03;
+  return (
+    <group position={[0, y, 0]}>
+      <mesh position={[0, h / 2, 0]}>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial {...GLASS} />
+      </mesh>
+      {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
+        <mesh key={i} position={[sx * (w / 2 - t / 2), h / 2, sz * (d / 2 - t / 2)]}>
+          <boxGeometry args={[t, h, t]} />
+          <meshStandardMaterial {...ALU_EDGE} />
+        </mesh>
+      ))}
+      <mesh position={[0, h + t / 2, 0]}>
+        <boxGeometry args={[w + 0.02, t, d + 0.02]} />
+        <meshStandardMaterial {...ALU_EDGE} />
+      </mesh>
+      {/* the vitrine's own lighting, which is what makes a case read at all */}
+      <mesh position={[0, h - 0.012, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[w - 0.1, d - 0.08]} />
+        <meshBasicMaterial color="#fff3dd" toneMapped={false} />
+      </mesh>
+      <pointLight position={[0, h - 0.1, 0]} intensity={2.6} distance={1.6} color="#fff0d2" />
+    </group>
+  );
+}
+
+/** Glass book display: plinth, three lit shelves, books. */
+function GlassCase() {
+  const { w, d, plinth, glass, shelves } = GCASE;
+  const spine = ['#8d2f2f', '#1f4d7a', '#2f6b45', '#8a6a2a', '#4a3570', '#a04a1e'];
+  return (
+    <group>
+      <mesh position={[0, plinth / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[w, plinth, d]} />
+        <meshStandardMaterial color="#f4f4f2" roughness={0.6} />
+      </mesh>
+      <Vitrine w={w} d={d} h={glass} y={plinth} />
+      {Array.from({ length: shelves }, (_, i) => {
+        const y = plinth + 0.1 + ((i + 1) * glass) / (shelves + 1);
+        return (
+          <group key={i}>
+            <mesh position={[0, y, 0]} castShadow>
+              <boxGeometry args={[w - 0.07, 0.016, d - 0.06]} />
+              <meshStandardMaterial {...GLASS} opacity={0.35} />
+            </mesh>
+            {/* a run of books, leaning the last one as a real shelf does */}
+            {Array.from({ length: 9 }, (__, b) => {
+              const bw = 0.035 + (b % 3) * 0.012;
+              const bh = 0.2 + ((b * 7) % 5) * 0.012;
+              return (
+                <mesh key={b}
+                  position={[-w / 2 + 0.09 + b * 0.075, y + bh / 2 + 0.008, 0]}
+                  rotation={[0, 0, b === 8 ? 0.28 : 0]} castShadow>
+                  <boxGeometry args={[bw, bh, d - 0.14]} />
+                  <meshStandardMaterial color={spine[(b + i * 2) % spine.length]}
+                    roughness={0.8} />
+                </mesh>
+              );
+            })}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/** 2D cutout standee: printed board on a weighted foot. */
+function Standee({ tex }: { tex: THREE.Texture }) {
+  const { w, h } = STANDEE;
+  return (
+    <group>
+      <mesh position={[0, 0.012, 0]} receiveShadow>
+        <cylinderGeometry args={[w * 0.42, w * 0.46, 0.024, 24]} />
+        <meshStandardMaterial color="#d7dbe0" roughness={0.6} metalness={0.1} />
+      </mesh>
+      {/* The alphaTest is what makes this a cutout: without it the board
+          renders as a rectangle with the figure painted on it. */}
+      <mesh position={[0, h / 2 + 0.024, 0]} castShadow>
+        <planeGeometry args={[w, h]} />
+        <meshStandardMaterial map={tex} transparent alphaTest={0.5}
+          side={THREE.DoubleSide} roughness={0.85} />
+      </mesh>
+      {/* edge of the board, so it reads as 6 mm foam rather than a decal */}
+      <mesh position={[0, h / 2 + 0.024, -0.004]}>
+        <planeGeometry args={[w, h]} />
+        <meshStandardMaterial map={tex} transparent alphaTest={0.5}
+          color="#d8d8d8" side={THREE.BackSide} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Photo booth: printed backdrop in a lit frame, with a floor decal. */
+function PhotoBooth({ id, fallback, ctx }: {
+  id: SurfaceId; fallback: THREE.Texture; ctx: SurfaceCtx;
+}) {
+  const { w, h, d, printW, printH } = PHOTO;
+  return (
+    <group>
+      {/* backdrop carcass */}
+      <mesh position={[0, h / 2, -d / 2]} castShadow receiveShadow>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial color="#eceae6" roughness={0.8} />
+      </mesh>
+      {/* the printed face, a drop target like any other graphic */}
+      <group position={[0, h / 2, 0.004]}>
+        <Surface id={id} w={printW} h={printH} ctx={ctx} fallback={fallback} frameMm={30} />
+      </group>
+      {/* lit returns either side */}
+      {[-1, 1].map((e) => (
+        <group key={e} position={[e * (w / 2 + 0.06), 0, 0.12]}>
+          <mesh position={[0, h / 2, 0]} castShadow>
+            <boxGeometry args={[0.12, h, 0.34]} />
+            <meshStandardMaterial color="#f2f0ec" roughness={0.7} />
+          </mesh>
+          <mesh position={[e * 0.062, h / 2, 0.172]} rotation={[0, e * Math.PI / 2, 0]}>
+            <planeGeometry args={[0.04, h - 0.2]} />
+            <meshBasicMaterial color="#ffdfae" toneMapped={false} />
+          </mesh>
+          <pointLight position={[0, 1.7, 0.3]} intensity={5} distance={3} color="#ffe6c2" />
+        </group>
+      ))}
+      {/* where to stand */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0.85]}>
+        <ringGeometry args={[0.42, 0.5, 40]} />
+        <meshBasicMaterial color="#d9b26a" toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+/** The scale model under a 4 ft x 2 ft vitrine, on a captioned plinth. */
+function ModelCase({ caption }: { caption: THREE.Texture }) {
+  const { w, d, plinth, glass } = MCASE;
+  const build = (x: number, z: number, bw: number, bd: number, bh: number, c: string) => (
+    <mesh position={[x, plinth + bh / 2 + 0.01, z]} castShadow>
+      <boxGeometry args={[bw, bh, bd]} />
+      <meshStandardMaterial color={c} roughness={0.75} />
+    </mesh>
+  );
+  return (
+    <group>
+      <mesh position={[0, plinth / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[w, plinth, d]} />
+        <meshStandardMaterial color="#f4f4f2" roughness={0.6} />
+      </mesh>
+      {/* caption on all four plinth faces, so it reads from any approach */}
+      {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((r, i) => (
+        <mesh key={i} position={[
+          r === 0 ? 0 : r === Math.PI ? 0 : (r > 0 ? -w / 2 - 0.003 : w / 2 + 0.003),
+          plinth - 0.14,
+          r === 0 ? d / 2 + 0.003 : r === Math.PI ? -d / 2 - 0.003 : 0,
+        ]} rotation={[0, r, 0]}>
+          <planeGeometry args={[(i % 2 ? d : w) * 0.92, 0.17]} />
+          <meshStandardMaterial map={caption} roughness={0.5} />
+        </mesh>
+      ))}
+
+      {/* the diorama: school, pathway, campus, workplace */}
+      <mesh position={[0, plinth + 0.008, 0]} receiveShadow>
+        <boxGeometry args={[w - 0.05, 0.016, d - 0.05]} />
+        <meshStandardMaterial color="#cfd6cb" roughness={0.95} />
+      </mesh>
+      {/* the pathway running the length of it */}
+      <mesh position={[0, plinth + 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[w - 0.12, 0.075]} />
+        <meshStandardMaterial color="#d9b26a" roughness={0.6} />
+      </mesh>
+      {build(-0.42, -0.14, 0.2, 0.15, 0.13, '#e8e4dc')}
+      {build(-0.42, -0.14 + 0.0, 0.2, 0.15, 0.13, '#e8e4dc')}
+      {build(-0.14, -0.15, 0.17, 0.14, 0.18, '#dfe6ee')}
+      {build(0.16, -0.15, 0.19, 0.14, 0.23, '#cfd8e6')}
+      {build(0.45, -0.14, 0.21, 0.16, 0.3, '#b9c6d8')}
+      {/* graduation cap marking the turn from study to work */}
+      <group position={[0.02, plinth + 0.07, 0.13]}>
+        <mesh castShadow>
+          <cylinderGeometry args={[0.03, 0.035, 0.03, 14]} />
+          <meshStandardMaterial color="#15306d" roughness={0.6} />
+        </mesh>
+        <mesh position={[0, 0.022, 0]} rotation={[0.12, 0.5, 0]}>
+          <boxGeometry args={[0.1, 0.006, 0.1]} />
+          <meshStandardMaterial color="#15306d" roughness={0.6} />
+        </mesh>
+      </group>
+      {/* direction arrows along the path */}
+      {[-0.3, 0, 0.3].map((x) => (
+        <mesh key={x} position={[x, plinth + 0.026, 0]} rotation={[-Math.PI / 2, 0, -Math.PI / 2]}>
+          <coneGeometry args={[0.022, 0.05, 3]} />
+          <meshStandardMaterial color="#15306d" />
+        </mesh>
+      ))}
+      <Vitrine w={w} d={d} h={glass} y={plinth} />
+    </group>
+  );
+}
+
 function DisplaySteps({ labels }: { labels: THREE.Texture[] }) {
   return (
     <group>
@@ -755,10 +968,12 @@ function DisplaySteps({ labels }: { labels: THREE.Texture[] }) {
             <planeGeometry args={[STEP.w * 0.94, 0.02]} />
             <meshBasicMaterial color="#ffd9a0" toneMapped={false} />
           </mesh>
+          {/* Scaled to very nearly fill the 4 ft x 2 ft platform -- at
+              model scale these read as exhibits, not as desk ornaments. */}
           <group position={[0, h + 0.024, 0]}>
-            {i === 0 && <RobotArm />}
-            {i === 1 && <EvChassis />}
-            {i === 2 && <SolarFarm />}
+            {i === 0 && <group scale={1.85}><RobotArm /></group>}
+            {i === 1 && <group scale={2.3}><EvChassis /></group>}
+            {i === 2 && <group scale={2.25}><SolarFarm /></group>}
           </group>
         </group>
       ))}
@@ -1119,6 +1334,10 @@ function Stall({
     [name, logoImg, cfg.fasciaTextColor]);
   const kioskTex = useMemo(() => makeKioskTexture(name, '#4da3ff'), [name]);
   const stepLabels = useMemo(() => STEP_TOPICS.map(makeStepLabelTexture), []);
+  const standeeTex = useMemo(
+    () => ({ girl: makeStandeeTexture('girl'), boy: makeStandeeTexture('boy') }), []);
+  const backdropTex = useMemo(() => makePhotoBackdrop(name), [name]);
+  const plinthTex = useMemo(() => makePlinthTexture(MCASE_TITLE), []);
 
   const { width: W, depth: D } = cfg;
 
@@ -1162,6 +1381,13 @@ function Stall({
           {p.type === 'cabinet' && <Cabinet />}
           {p.type === 'kiosk' && <Kiosk tex={kioskTex} id={`kiosk:${p.id}`} ctx={ctx} />}
           {p.type === 'steps' && <DisplaySteps labels={stepLabels} />}
+          {p.type === 'glasscase' && <GlassCase />}
+          {p.type === 'standeeGirl' && <Standee tex={standeeTex.girl} />}
+          {p.type === 'standeeBoy' && <Standee tex={standeeTex.boy} />}
+          {p.type === 'photobooth' && (
+            <PhotoBooth id={`photo:${p.id}`} fallback={backdropTex} ctx={ctx} />
+          )}
+          {p.type === 'modelcase' && <ModelCase caption={plinthTex} />}
           {p.type === 'bin' && <Bin />}
         </Draggable>
       ))}

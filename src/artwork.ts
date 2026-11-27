@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { FASCIA_PRINT_H, PANEL_PRINT_W, PANEL_PRINT_H, COUNTER, KIOSK } from './constants';
+import {
+  FASCIA_PRINT_H, PANEL_PRINT_W, PANEL_PRINT_H, COUNTER, KIOSK, PHOTO,
+} from './constants';
 import {
   edgeLength, fasciaEdges, panelsOnWall, stallCfg, stallOf, stallsOf, wallsFor,
 } from './booth';
@@ -60,6 +62,12 @@ export function surfacePrint(id: SurfaceId, cfg: Config): PrintSpec | null {
   if (kind === 'kiosk') {
     return { w: KIOSK.screenW * 1000, h: KIOSK.screenH * 1000, frame: 0, label: 'Kiosk screen' };
   }
+  if (kind === 'photo') {
+    return {
+      w: PHOTO.printW * 1000, h: PHOTO.printH * 1000, frame: 30,
+      label: 'Photo-booth backdrop',
+    };
+  }
   return null;
 }
 
@@ -71,6 +79,7 @@ export function surfaceLabel(id: SurfaceId): string {
     : kind === 'fascia' ? `fascia · ${a}`
     : kind === 'counter' ? 'counter face'
     : kind === 'kiosk' ? 'kiosk screen'
+    : kind === 'photo' ? 'photo-booth backdrop'
     : kind === 'tv' ? 'TV screen'
     : bare;
   if (stall === 'b') return `rear stall · ${where}`;
@@ -190,6 +199,7 @@ export function liveSurfaces(cfg: Config, placements: Placement[]): Set<SurfaceI
     if (p.type === 'counter' || p.type === 'kiosk') {
       out.add(`${nsOf(stallOf(p))}${p.type}:${p.id}`);
     }
+    if (p.type === 'photobooth') out.add(`${nsOf(stallOf(p))}photo:${p.id}`);
   }
   return out;
 }

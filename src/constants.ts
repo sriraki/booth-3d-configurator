@@ -61,6 +61,8 @@ export const TV_DEPTH = 0.07;
 export const FOOTPRINT: Record<string, number> = {
   counter: 1.5, table: 2.4, cabinet: 0.8, kiosk: 0.74, bin: 0.1,
   steps: 1.219 * 0.610 * 3,
+  glasscase: 0.9 * 0.45 + 0.4, standeeGirl: 0.3, standeeBoy: 0.3,
+  photobooth: 2.2 * 1.2, modelcase: 1.219 * 0.610 + 1.2,
 };
 
 // --- Project display steps -------------------------------------------------
@@ -76,6 +78,21 @@ export const STEP_TOPICS = [
   'ELECTRIC VEHICLE TECHNOLOGY',
   'IoT-BASED SMART AGRICULTURE',
 ];
+
+// --- Display units ---------------------------------------------------------
+
+/** Glass book display: plinth, three shelves, lit vitrine. */
+export const GCASE = { w: 0.9, d: 0.45, plinth: 0.25, glass: 1.5, shelves: 3 };
+
+/** 2D cutout standee on a weighted foot. */
+export const STANDEE = { w: 0.6, h: 1.55 };
+
+/** Photo booth: a printed backdrop with a lit frame and a floor decal. */
+export const PHOTO = { w: 2.2, h: 2.2, d: 0.12, printW: 2.1, printH: 2.0 };
+
+/** The scale model, under a 4 ft x 2 ft vitrine on a captioned plinth. */
+export const MCASE = { w: 1.219, d: 0.610, plinth: 0.85, glass: 0.58 };
+export const MCASE_TITLE = 'FROM CLASSROOM TO CAREER';
 
 export const SIZES = [3, 4, 5, 6] as const;
 

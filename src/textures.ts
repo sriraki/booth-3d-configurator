@@ -206,3 +206,159 @@ export function makeStepLabelTexture(text: string) {
     ctx.fillText(l2, pad, h * 0.68);
   });
 }
+
+/**
+ * Flat artwork for a 2D cutout standee: a schoolchild in uniform, drawn on a
+ * transparent canvas so the plane reads as a cut silhouette rather than a
+ * rectangle. Deliberately simple and graphic -- it is printed flat board.
+ */
+export function makeStandeeTexture(kind: 'girl' | 'boy') {
+  const girl = kind === 'girl';
+  const tex = canvasTexture(0.6, 1.55, (ctx, w, h) => {
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2;
+    const U = h / 155;                       // 1 cm of a 155 cm figure
+    const skin = '#e0ac7e', navy = '#15306d', white = '#fbfbfb';
+    const hair = '#241a14', shoe = '#23262b';
+
+    const headR = 11 * U;
+    const headY = 18 * U;
+
+    // legs
+    ctx.fillStyle = skin;
+    [-5, 5].forEach((dx) => {
+      ctx.fillRect(cx + dx * U - 4 * U, h - 46 * U, 8 * U, 40 * U);
+    });
+    // shoes
+    ctx.fillStyle = shoe;
+    [-5, 5].forEach((dx) => {
+      ctx.beginPath();
+      ctx.ellipse(cx + dx * U, h - 4 * U, 7 * U, 4.5 * U, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    // socks
+    ctx.fillStyle = white;
+    [-5, 5].forEach((dx) => ctx.fillRect(cx + dx * U - 4.2 * U, h - 18 * U, 8.4 * U, 10 * U));
+
+    if (girl) {
+      // pinafore
+      ctx.fillStyle = navy;
+      ctx.beginPath();
+      ctx.moveTo(cx - 13 * U, headY + headR + 10 * U);
+      ctx.lineTo(cx + 13 * U, headY + headR + 10 * U);
+      ctx.lineTo(cx + 20 * U, h - 50 * U);
+      ctx.lineTo(cx - 20 * U, h - 50 * U);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // shorts
+      ctx.fillStyle = navy;
+      ctx.fillRect(cx - 15 * U, h - 68 * U, 30 * U, 24 * U);
+    }
+
+    // shirt
+    ctx.fillStyle = white;
+    ctx.fillRect(cx - 15 * U, headY + headR + 2 * U, 30 * U, girl ? 16 * U : 38 * U);
+    // collar + tie
+    ctx.fillStyle = navy;
+    ctx.beginPath();
+    ctx.moveTo(cx - 6 * U, headY + headR + 2 * U);
+    ctx.lineTo(cx, headY + headR + 10 * U);
+    ctx.lineTo(cx + 6 * U, headY + headR + 2 * U);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(cx - 2.5 * U, headY + headR + 8 * U, 5 * U, 16 * U);
+
+    // arms
+    ctx.fillStyle = skin;
+    [-19, 19].forEach((dx) => {
+      ctx.fillRect(cx + dx * U - 4 * U, headY + headR + 4 * U, 8 * U, 34 * U);
+    });
+    ctx.fillStyle = white;
+    [-19, 19].forEach((dx) => {
+      ctx.fillRect(cx + dx * U - 4.4 * U, headY + headR + 4 * U, 8.8 * U, 14 * U);
+    });
+
+    // head
+    ctx.fillStyle = hair;
+    ctx.beginPath();
+    ctx.arc(cx, headY, headR + 3 * U, Math.PI, Math.PI * 2);
+    ctx.fill();
+    if (girl) {
+      [-1, 1].forEach((s) => {
+        ctx.beginPath();
+        ctx.ellipse(cx + s * (headR + 2 * U), headY + 6 * U, 5 * U, 11 * U, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = hair;
+    ctx.beginPath();
+    ctx.arc(cx, headY - 2 * U, headR, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+    // eyes + smile
+    ctx.fillStyle = '#2a2018';
+    [-4, 4].forEach((dx) => {
+      ctx.beginPath();
+      ctx.arc(cx + dx * U, headY + 1 * U, 1.5 * U, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.strokeStyle = '#8a4a3a';
+    ctx.lineWidth = 1.4 * U;
+    ctx.beginPath();
+    ctx.arc(cx, headY + 3 * U, 4.5 * U, 0.25 * Math.PI, 0.75 * Math.PI);
+    ctx.stroke();
+  });
+  return tex;
+}
+
+/** Default photo-booth backdrop until the client drops their own artwork on it. */
+export function makePhotoBackdrop(title: string, accent = '#15306d') {
+  return canvasTexture(2.1, 2.0, (ctx, w, h) => {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, accent);
+    g.addColorStop(1, '#0b1c42');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    // a gold frame to stand inside
+    ctx.strokeStyle = '#d9b26a';
+    ctx.lineWidth = h * 0.012;
+    const m = h * 0.07;
+    ctx.strokeRect(m, m, w - m * 2, h - m * 2);
+    ctx.lineWidth = h * 0.004;
+    ctx.strokeRect(m * 1.5, m * 1.5, w - m * 3, h - m * 3);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const size = fitText(ctx, title, w * 0.72, h * 0.075);
+    ctx.font = `700 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText(title, w / 2, h * 0.17);
+
+    ctx.fillStyle = '#d9b26a';
+    const s2 = fitText(ctx, '# PHOTO BOOTH', w * 0.4, h * 0.045);
+    ctx.font = `700 ${s2}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('# PHOTO BOOTH', w / 2, h * 0.87);
+  });
+}
+
+/** Caption plate on the model vitrine's plinth. */
+export function makePlinthTexture(title: string) {
+  return canvasTexture(1.219, 0.2, (ctx, w, h) => {
+    ctx.fillStyle = '#15306d';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(217,178,106,0.75)';
+    ctx.lineWidth = Math.max(1, h * 0.03);
+    ctx.strokeRect(h * 0.16, h * 0.16, w - h * 0.32, h - h * 0.32);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const size = fitText(ctx, title, w * 0.84, h * 0.46);
+    ctx.font = `700 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText(title, w / 2, h / 2);
+  });
+}

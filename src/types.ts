@@ -1,7 +1,8 @@
 export type WallId = 'back' | 'left' | 'right';
 export type EdgeId = 'front' | 'left' | 'right';
 export type ItemType =
-  'counter' | 'table' | 'cabinet' | 'kiosk' | 'bin' | 'steps';
+  'counter' | 'table' | 'cabinet' | 'kiosk' | 'bin' | 'steps'
+  | 'glasscase' | 'standeeGirl' | 'standeeBoy' | 'photobooth' | 'modelcase';
 
 /** 'a' and 'b' share one back wall; 'c' stands diagonally across the aisle. */
 export type StallId = 'a' | 'b' | 'c';
@@ -20,6 +21,12 @@ export type Kit = Partial<Record<ItemType, number>> & {
   tvs?: number;
   /** Index into TV_SIZES: this stall's default screen. */
   tvSizeIdx?: number;
+  /**
+   * Explicit placements for a stall whose fit-out has been designed rather
+   * than derived. When present it replaces the generic anchors entirely --
+   * a designed stand is a drawing, not a set of rules.
+   */
+  layout?: { type: ItemType; x: number; z: number; rotY?: number }[];
 };
 
 export interface Tv {

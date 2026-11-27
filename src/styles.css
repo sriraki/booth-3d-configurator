@@ -178,6 +178,9 @@ h2 .check.tight input { width: 11px; height: 11px; }
 .dpi.bad  { color: var(--danger); }
 
 .seg.tight { margin-bottom: 10px; }
+/* The stall-angle row has six entries; let them wrap rather than squeeze. */
+.seg.wrap { flex-wrap: wrap; }
+.seg.wrap button { flex: 1 1 30%; font-size: 11px; padding: 5px 4px; }
 .seg.tight button { text-transform: capitalize; font-size: 11px; padding: 4px 6px; }
 
 .warn.tightwarn { margin: 0 0 9px; font-size: 10.5px; padding: 6px 8px; }

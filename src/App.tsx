@@ -7,7 +7,7 @@ import { Controls, SpecPanel } from './Sidebar';
 import {
   autoLayout, autoLayoutAll, autoTvs, autoTvsAll, computeSpecs, wallsFor, fasciaEdges,
   anchorFor, nextTvSlot, wallLength, stallCfg, stallLabel, stallOf, stallsOf,
-  arrangementBounds, STALL_ROLE,
+  arrangementBounds, STALL_ROLE, STALL_ANGLES, stallCamera, type StallAngle,
 } from './booth';
 import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES, AISLE_W, LED_8X6_IDX } from './constants';
 import type { Config, ItemType, Placement, StallId, Tv, TvMedia } from './types';
@@ -21,7 +21,7 @@ import * as store from './storage';
  *  sides, the furniture kit, seating. A session saved against an older design
  *  would otherwise pin defaults the design has since moved on from, so it
  *  starts from the new one. Artwork and screen media are kept either way. */
-const CFG_REV = 6;
+const CFG_REV = 9;
 
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
@@ -33,11 +33,36 @@ const INITIAL: Config = {
   thirdOpenSides: 2,
   thirdMirror: true,          // opens its front and its left
   kit: {
-    // DTE is built out to the client's mockup: three project display steps
-    // and an 8 x 6 ft LED wall on the back panel.
-    a: { table: 1, kiosk: 0, steps: 1, tvs: 1, tvSizeIdx: LED_8X6_IDX },
-    b: { table: 0 },             // CCE: no coffee table
-    c: { table: 1, kiosk: 0 },   // DIE: one coffee table, no kiosk
+    // DTE and DIE are designed stands, placed to the client's drawing rather
+    // than derived from floor area. Each stall's screen sits on its 3 m wall.
+    a: {
+      tvs: 1, tvSizeIdx: LED_8X6_IDX,
+      layout: [
+        { type: 'steps', x: -2.22, z: 0.30 },          // models, open corner
+        { type: 'counter', x: 2.22, z: 0.78, rotY: -0.45 },   // helpdesk, screen side
+        { type: 'table', x: 0.10, z: 0.60 },
+        { type: 'cabinet', x: -2.45, z: -1.20 },
+        { type: 'bin', x: 2.75, z: -1.10 },
+      ],
+    },
+    b: { table: 0 },             // CCE: no coffee table, otherwise derived
+    c: {
+      tvs: 1, tvSizeIdx: LED_8X6_IDX,
+      layout: [
+        { type: 'modelcase', x: 0, z: 0 },                    // centre of the stall
+        { type: 'counter', x: -2.30, z: 0.55, rotY: 0.45 },   // helpdesk, open corner
+        { type: 'table', x: 1.60, z: 0 },
+        // Back wall: photo booth on the left, the two book cases on the right.
+        { type: 'photobooth', x: -1.78, z: -1.28 },
+        { type: 'glasscase', x: 0.30, z: -1.20 },
+        { type: 'glasscase', x: 1.40, z: -1.20 },
+        // Standees take the two frontage corners. Anywhere nearer the middle
+        // and they stand on the sight line from the aisle to the vitrine.
+        { type: 'standeeGirl', x: -2.70, z: 1.20 },
+        { type: 'standeeBoy', x: 2.55, z: 1.20 },
+        { type: 'bin', x: 2.80, z: -0.90 },
+      ],
+    },
   },
   logo: null,
   carpet: '#6b6e72', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
@@ -59,9 +84,23 @@ function Capture({ sink }: { sink: React.MutableRefObject<any> }) {
   return null;
 }
 
-function CameraRig({ view, cfg, controls }: { view: string; cfg: Config; controls: any }) {
+function CameraRig({ view, cfg, stall, controls }: {
+  view: string; cfg: Config; stall: StallId; controls: any;
+}) {
   const { camera, size } = useThree();
   useEffect(() => {
+    // An "angle:<name>" view frames the stall being edited from that angle.
+    if (view.startsWith('angle:')) {
+      const a = view.slice(6) as StallAngle;
+      const { pos, target, overhead } = stallCamera(cfg, stall, a);
+      camera.up.set(0, overhead ? 0 : 1, overhead ? -1 : 0);
+      camera.position.set(pos[0], pos[1], pos[2]);
+      if (controls.current) {
+        controls.current.target.set(target[0], target[1], target[2]);
+        controls.current.update();
+      }
+      return;
+    }
     const W = cfg.width, D = cfg.depth;
     const cam = camera as THREE.PerspectiveCamera;
     const vFov = THREE.MathUtils.degToRad(cam.fov);
@@ -110,8 +149,7 @@ function CameraRig({ view, cfg, controls }: { view: string; cfg: Config; control
       controls.current.target.set(t[0], t[1], t[2]);
       controls.current.update();
     }
-  }, [view, cfg.width, cfg.depth, cfg.partner, cfg.third, cfg.mirror,
-      camera, controls, size.width, size.height]);
+  }, [view, stall, cfg, camera, controls, size.width, size.height]);
   return null;
 }
 
@@ -438,8 +476,8 @@ export default function App() {
       let changed = false;
       const out: Record<SurfaceId, Artwork> = {};
       for (const [id, art] of Object.entries(a)) {
-        const kind = id.replace(/^b\//, '').split(':')[0];
-        if ((kind === 'counter' || kind === 'kiosk') && !live.has(id)) {
+        const kind = id.replace(/^[bc]\//, '').split(':')[0];
+        if ((kind === 'counter' || kind === 'kiosk' || kind === 'photo') && !live.has(id)) {
           URL.revokeObjectURL(art.src);
           changed = true;
           continue;
@@ -523,6 +561,54 @@ export default function App() {
    * so the framing is identical to the preview instead of revealing more of
    * the scene at the edges. The GPU's own limit caps it.
    */
+  const renderAt = (targetW: number): { url: string; w: number; h: number } | null => {
+    const t = three.current;
+    const gl = glRef.current;
+    if (!t || !gl) return null;
+    const canvas = gl.domElement as HTMLCanvasElement;
+    const cssW = canvas.clientWidth || canvas.width;
+    const cssH = canvas.clientHeight || canvas.height;
+    const maxPr = Math.max(1, (gl.capabilities?.maxTextureSize ?? 4096) / Math.max(cssW, cssH));
+    const pr = Math.max(1, Math.min(targetW / cssW, maxPr));
+    const prev = gl.getPixelRatio();
+    try {
+      gl.setPixelRatio(pr);
+      gl.setSize(cssW, cssH, false);
+      gl.render(t.scene, t.camera);
+      return { url: canvas.toDataURL('image/png'), w: canvas.width, h: canvas.height };
+    } finally {
+      gl.setPixelRatio(prev);
+      gl.setSize(cssW, cssH, false);
+      gl.render(t.scene, t.camera);
+    }
+  };
+
+  const download = (url: string, name: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+  };
+
+  /** Every angle of the stall being edited, one file each. */
+  const exportAllAngles = async (targetW: number) => {
+    const role = STALL_ROLE[stall];
+    const name = stallLabel(cfg, stall).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40);
+    const was = view;
+    for (const a of STALL_ANGLES) {
+      setView(`angle:${a}`);
+      // Let the rig move the camera and the frame settle before reading back.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 120));
+      const shot = renderAt(targetW);
+      if (!shot) break;
+      download(shot.url, `${role}_${name}_${a.replace(/ /g, '-')}_${shot.w}px.png`);
+      await new Promise((r) => setTimeout(r, 350));   // let each save land
+    }
+    setView(was);
+    setToast(`Exported ${STALL_ANGLES.length} angles of the ${role} stall`);
+  };
+
   const exportImage = (targetW: number) => {
     const t = three.current;
     const gl = glRef.current;
@@ -646,6 +732,7 @@ export default function App() {
         showSafeArea={showSafeArea} setShowSafeArea={setShowSafeArea}
         assign={assign}
         exportW={exportW} setExportW={setExportW} exportImage={exportImage}
+        exportAllAngles={exportAllAngles} angles={STALL_ANGLES as unknown as string[]}
       />
 
       <div
@@ -669,7 +756,7 @@ export default function App() {
           <color attach="background" args={[cfg.showHall ? '#cfcdc8' : '#1a1d21']} />
           <fog attach="fog" args={[cfg.showHall ? '#cfcdc8' : '#1a1d21', 44, 96]} />
           <Capture sink={three} />
-          <CameraRig view={view} cfg={cfg} controls={controls} />
+          <CameraRig view={view} cfg={cfg} stall={stall} controls={controls} />
           <Suspense fallback={null}>
             <Scene
               cfg={cfg} placements={placements} tvs={tvs}

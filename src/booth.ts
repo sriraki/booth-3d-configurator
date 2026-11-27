@@ -80,6 +80,39 @@ export function stallPose(cfg: Config, s: StallId): Pose {
   };
 }
 
+/**
+ * Camera positions around one stall, named, in world coordinates. Written as
+ * offsets in the stall's own frame and then pushed through its pose, so the
+ * same six angles mean the same thing whichever way a stall faces.
+ */
+export const STALL_ANGLES = [
+  'frontage', 'open side', 'open corner', 'far corner', 'interior', 'plan',
+] as const;
+export type StallAngle = typeof STALL_ANGLES[number];
+
+export function stallCamera(cfg: Config, stall: StallId, angle: StallAngle) {
+  const { width: W, depth: D } = cfg;
+  const pose = stallPose(cfg, stall);
+  const sc = stallCfg(cfg, stall);
+  const open = sc.mirror ? -1 : 1;      // local x of the open flank
+  const reach = Math.max(W, D);
+
+  const local: Record<StallAngle, { p: [number, number, number]; t: [number, number, number] }> = {
+    frontage:     { p: [0, 1.95, D / 2 + reach * 1.05], t: [0, 1.25, 0] },
+    'open side':  { p: [open * (W / 2 + reach * 0.75), 1.95, 0], t: [0, 1.25, 0] },
+    'open corner': { p: [open * (W * 0.62), 2.45, D / 2 + reach * 0.72], t: [0, 1.15, -D * 0.1] },
+    'far corner': { p: [-open * (W * 0.62), 2.45, D / 2 + reach * 0.72], t: [0, 1.15, -D * 0.1] },
+    interior:     { p: [open * (W * 0.3), 1.62, D / 2 - 0.5], t: [-open * (W * 0.3), 1.25, -D / 2] },
+    plan:         { p: [0, reach * 1.65, 0.01], t: [0, 0, 0] },
+  };
+
+  const toWorld = ([x, y, z]: [number, number, number]): [number, number, number] =>
+    pose.flip ? [pose.x - x, y, pose.z - z] : [pose.x + x, y, pose.z + z];
+
+  const a = local[angle];
+  return { pos: toWorld(a.p), target: toWorld(a.t), overhead: angle === 'plan' };
+}
+
 /** Footprint of the whole arrangement in world coordinates. */
 export function arrangementBounds(cfg: Config) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -132,8 +165,10 @@ export function edgePoint(e: EdgeId, t: number, W: number, D: number) {
 // Reference pack is 9 sqm: 3 spotlights, 5 chairs, 1 round table,
 // 1 counter, 1 cabinet, 1 socket, 1 bin. Everything scales pro-rata.
 
-export const ITEM_TYPES: ItemType[] =
-  ['counter', 'table', 'cabinet', 'kiosk', 'steps', 'bin'];
+export const ITEM_TYPES: ItemType[] = [
+  'counter', 'table', 'cabinet', 'kiosk', 'steps',
+  'glasscase', 'standeeGirl', 'standeeBoy', 'photobooth', 'modelcase', 'bin',
+];
 
 export const ITEM_LABEL: Record<ItemType, string> = {
   counter: 'Reception counter',
@@ -141,6 +176,11 @@ export const ITEM_LABEL: Record<ItemType, string> = {
   cabinet: 'Lockable cabinet',
   kiosk: 'Touchscreen kiosk',
   steps: 'Project display steps',
+  glasscase: 'Glass book display',
+  standeeGirl: 'Standee — girl in uniform',
+  standeeBoy: 'Standee — boy in uniform',
+  photobooth: 'Photo booth',
+  modelcase: 'Model display vitrine',
   bin: 'Dustbin',
 };
 
@@ -152,7 +192,9 @@ export function defaultCounts(area: number): Record<ItemType, number> & {
     table: area <= 15 ? 1 : area <= 28 ? 2 : 3,
     cabinet: Math.max(1, Math.round(area / 18)),
     kiosk: area <= 12 ? 0 : area <= 28 ? 1 : 2,
-    steps: 0,              // a stand feature, switched on per stall
+    // Stand features, switched on per stall rather than scaled by area.
+    steps: 0, glasscase: 0, standeeGirl: 0, standeeBoy: 0,
+    photobooth: 0, modelcase: 0,
     bin: 1,
     spotlights: Math.max(3, Math.ceil(area / 3)),
     tvs: area <= 12 ? 1 : area <= 20 ? 1 : area <= 28 ? 2 : 3,
@@ -200,6 +242,19 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
         z: clampZ(-D / 2 + 0.5),
         rotY: -wallSide * 0.6,
       };
+    case 'glasscase':
+      return { x: clampX(-wallSide * (W / 2 - 0.6 - i * 1.1)), z: clampZ(-D / 2 + 0.35), rotY: 0 };
+    case 'standeeGirl':
+    case 'standeeBoy':
+      return {
+        x: clampX((type === 'standeeGirl' ? -1 : 1) * 0.35 - wallSide * i * 0.7),
+        z: clampZ(-D / 2 + 0.3),
+        rotY: 0,
+      };
+    case 'photobooth':
+      return { x: clampX(wallSide * (W / 2 - 1.3 - i * 2.4)), z: clampZ(-D / 2 + 0.25), rotY: 0 };
+    case 'modelcase':
+      return { x: clampX(i * 1.5), z: clampZ(0), rotY: 0 };
     case 'bin':
     default:
       // Back of the screen-side flank, out of the helpdesk's way.
@@ -215,6 +270,14 @@ export function countsFor(cfg: Config, stall: StallId) {
 
 export function autoLayout(cfg: Config, stall: StallId = 'a'): Placement[] {
   const sc = stallCfg(cfg, stall);
+  const designed = cfg.kit?.[stall]?.layout;
+  if (designed) {
+    // A designed stand is a drawing, not a set of rules: place it verbatim.
+    return designed.map((p, i) => ({
+      id: `${stall}-${p.type}-${i}`, stall, type: p.type,
+      x: p.x, z: p.z, rotY: p.rotY ?? 0,
+    }));
+  }
   const c = countsFor(cfg, stall);
   const out: Placement[] = [];
   for (const type of ITEM_TYPES) {
