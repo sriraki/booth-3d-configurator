@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FASCIA_PRINT_H, PANEL_PRINT_W, PANEL_PRINT_H, COUNTER, KIOSK } from './constants';
-import { edgeLength } from './booth';
-import type { Config, EdgeId } from './types';
+import { edgeLength, fasciaEdges, panelsOnWall, wallsFor } from './booth';
+import type { Config, EdgeId, Placement } from './types';
 
 // ---------------------------------------------------------------------------
 // Surfaces are addressed by a stable string id so artwork survives re-layout.
@@ -151,4 +151,21 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
     img.onerror = () => rej(new Error('image decode failed'));
     img.src = src;
   });
+}
+
+/**
+ * Surfaces that currently exist. Panels and fascia come and go with the
+ * footprint; counters and kiosks come and go with the furniture list.
+ */
+export function liveSurfaces(cfg: Config, placements: Placement[]): Set<SurfaceId> {
+  const out = new Set<SurfaceId>();
+  for (const w of wallsFor(cfg.openSides, cfg.mirror)) {
+    const n = panelsOnWall(w, cfg.width, cfg.depth);
+    for (let i = 0; i < n; i++) out.add(`panel:${w}:${i}`);
+  }
+  for (const e of fasciaEdges(cfg.openSides, cfg.mirror)) out.add(`fascia:${e}`);
+  for (const p of placements) {
+    if (p.type === 'counter' || p.type === 'kiosk') out.add(`${p.type}:${p.id}`);
+  }
+  return out;
 }

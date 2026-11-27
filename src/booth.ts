@@ -2,7 +2,7 @@ import {
   PANEL_PITCH, PANEL_PRINT_W, PANEL_PRINT_H, FASCIA_PRINT_H, FASCIA_PRINT_W_BAY,
   SQM_TO_SQFT, TV_SIZES, TV_DEFAULT_IDX, FOOTPRINT, TOTAL_H,
 } from './constants';
-import type { Config, EdgeId, Placement, Tv, WallId } from './types';
+import type { Config, EdgeId, ItemType, Placement, Tv, WallId } from './types';
 
 // --- Topology --------------------------------------------------------------
 // Convention: X = width axis, Z = depth axis, origin at floor centre.
@@ -45,54 +45,68 @@ export function edgePoint(e: EdgeId, t: number, W: number, D: number) {
 // Reference pack is 9 sqm: 3 spotlights, 5 chairs, 1 round table,
 // 1 counter, 1 cabinet, 1 socket, 1 bin. Everything scales pro-rata.
 
-export function defaultCounts(area: number) {
+export const ITEM_TYPES: ItemType[] = ['counter', 'table', 'cabinet', 'kiosk', 'bin'];
+
+export const ITEM_LABEL: Record<ItemType, string> = {
+  counter: 'Reception counter',
+  table: 'Coffee table + chairs',
+  cabinet: 'Lockable cabinet',
+  kiosk: 'Touchscreen kiosk',
+  bin: 'Dustbin',
+};
+
+export function defaultCounts(area: number): Record<ItemType, number> & {
+  spotlights: number; tvs: number;
+} {
   return {
+    counter: 1,
+    table: area <= 15 ? 1 : area <= 28 ? 2 : 3,
+    cabinet: Math.max(1, Math.round(area / 18)),
+    kiosk: area <= 12 ? 0 : area <= 28 ? 1 : 2,
+    bin: 1,
     spotlights: Math.max(3, Math.ceil(area / 3)),
-    tvs:     area <= 12 ? 1 : area <= 20 ? 1 : area <= 28 ? 2 : 3,
-    kiosks:  area <= 12 ? 0 : area <= 28 ? 1 : 2,
-    tables:  area <= 15 ? 1 : area <= 28 ? 2 : 3,
-    cabinets: Math.max(1, Math.round(area / 18)),
+    tvs: area <= 12 ? 1 : area <= 20 ? 1 : area <= 28 ? 2 : 3,
   };
 }
 
 // --- Auto layout -----------------------------------------------------------
+// Each item type has its own anchor rule, indexed so that adding an item later
+// lands somewhere sensible rather than on top of its neighbour.
 
-export function autoLayout(cfg: Config): Placement[] {
+export function anchorFor(type: ItemType, i: number, cfg: Config) {
   const W = cfg.width, D = cfg.depth;
-  const area = W * D;
-  const c = defaultCounts(area);
   // On a corner stall the wall sits on one side; staff items back onto it.
   const wallSide = cfg.mirror ? 1 : -1;
+  const clampZ = (z: number) => Math.min(D / 2 - 0.6, Math.max(-D / 2 + 0.5, z));
+  const clampX = (x: number) => Math.min(W / 2 - 0.4, Math.max(-W / 2 + 0.4, x));
+
+  switch (type) {
+    case 'counter':
+      return { x: clampX(wallSide * (W / 2 - 0.75)), z: clampZ(D / 2 - 0.95 - i * 1.1), rotY: 0 };
+    case 'cabinet':
+      return { x: clampX(wallSide * (W / 2 - 0.55 - i * 1.0)), z: clampZ(-D / 2 + 0.3), rotY: 0 };
+    case 'table':
+      return { x: clampX(-wallSide * (W * 0.16)), z: clampZ(-D / 2 + 1.3 + i * 1.7), rotY: 0 };
+    case 'kiosk':
+      return {
+        x: clampX(-wallSide * (W / 2 - 0.45)),
+        z: clampZ(D / 2 - 0.7 - i * 1.3),
+        rotY: wallSide * 0.6,
+      };
+    case 'bin':
+    default:
+      return { x: clampX(wallSide * (W / 2 - 0.25)), z: clampZ(D / 2 - 1.7 - i * 0.6), rotY: 0 };
+  }
+}
+
+export function autoLayout(cfg: Config): Placement[] {
+  const c = defaultCounts(cfg.width * cfg.depth);
   const out: Placement[] = [];
-
-  // Counter: at the open frontage, backed onto the walled side, facing out.
-  out.push({ id: 'counter-0', type: 'counter',
-    x: wallSide * (W / 2 - 0.75), z: D / 2 - 0.95, rotY: 0 });
-
-  // Cabinet: back corner, same side as the counter, against the back wall.
-  for (let i = 0; i < c.cabinets; i++) {
-    out.push({ id: `cabinet-${i}`, type: 'cabinet',
-      x: wallSide * (W / 2 - 0.55 - i * 1.0), z: -D / 2 + 0.3, rotY: 0 });
+  for (const type of ITEM_TYPES) {
+    for (let i = 0; i < c[type]; i++) {
+      out.push({ id: `${type}-${i}`, type, ...anchorFor(type, i, cfg) });
+    }
   }
-
-  // Seating clusters: offset away from the counter, spread down the depth.
-  const zStep = D / (c.tables + 1);
-  for (let i = 0; i < c.tables; i++) {
-    out.push({ id: `table-${i}`, type: 'table',
-      x: -wallSide * (W * 0.16), z: -D / 2 + zStep * (i + 1), rotY: 0 });
-  }
-
-  // Kiosks: on the open side, set back from the aisle so they don't block it.
-  for (let i = 0; i < c.kiosks; i++) {
-    out.push({ id: `kiosk-${i}`, type: 'kiosk',
-      x: -wallSide * (W / 2 - 0.45), z: D / 2 - 0.7 - i * 1.3,
-      rotY: wallSide * 0.6 });
-  }
-
-  // Bin: tucked behind the counter.
-  out.push({ id: 'bin-0', type: 'bin',
-    x: wallSide * (W / 2 - 0.25), z: D / 2 - 1.7, rotY: 0 });
-
   return out;
 }
 

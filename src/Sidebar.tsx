@@ -1,6 +1,6 @@
 import { TV_SIZES, SIZES, PANEL_PRINT_H } from './constants';
-import { wallsFor, wallLength, defaultCounts } from './booth';
-import type { Config, Placement, Tv, WallId } from './types';
+import { wallsFor, wallLength, ITEM_TYPES, ITEM_LABEL } from './booth';
+import type { Config, ItemType, Placement, Tv, WallId } from './types';
 import type { Specs } from './booth';
 import {
   surfaceLabel, surfacePrint, effectiveDpi, resolutionVerdict,
@@ -20,6 +20,7 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 
 export function Controls({
   cfg, set, tvs, setTvs, placements, setPlacements, onReset, view, setView,
+  addItem, removeItem, countOf,
   artworks, selectedSurface, onPickSurface, updateArt, clearArt,
   showSafeArea, setShowSafeArea, assign,
 }: {
@@ -28,6 +29,9 @@ export function Controls({
   placements: Placement[]; setPlacements: (p: Placement[]) => void;
   onReset: () => void;
   view: string; setView: (v: string) => void;
+  addItem: (t: ItemType) => void;
+  removeItem: (t: ItemType) => void;
+  countOf: (t: ItemType) => number;
   artworks: Record<SurfaceId, Artwork>;
   selectedSurface: SurfaceId | null;
   onPickSurface: (id: SurfaceId | null) => void;
@@ -37,7 +41,6 @@ export function Controls({
   assign: (id: SurfaceId, f: File) => void;
 }) {
   const walls = wallsFor(cfg.openSides, cfg.mirror);
-  const kiosks = placements.filter((p) => p.type === 'kiosk');
 
   const addTv = () => {
     const wall: WallId = walls[0];
@@ -45,12 +48,6 @@ export function Controls({
   };
   const upTv = (id: string, patch: Partial<Tv>) =>
     setTvs(tvs.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-
-  const addKiosk = () => setPlacements([...placements, {
-    id: `kiosk-${Date.now()}`, type: 'kiosk',
-    x: (cfg.mirror ? -1 : 1) * (cfg.width / 2 - 0.45), z: cfg.depth / 2 - 0.7,
-    rotY: (cfg.mirror ? -1 : 1) * 0.6,
-  }]);
 
   const onLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -154,16 +151,23 @@ export function Controls({
       </section>
 
       <section>
-        <h2>Kiosks <button className="mini" onClick={addKiosk}>+ Add kiosk</button></h2>
-        <div className="note">
-          {kiosks.length} placed. Drag them on the floor to reposition.
-        </div>
-        {kiosks.length > 0 && (
-          <button className="ghost full" onClick={() =>
-            setPlacements(placements.filter((p) => p.id !== kiosks[kiosks.length - 1].id))}>
-            Remove last kiosk
-          </button>
-        )}
+        <h2>Furniture</h2>
+        {ITEM_TYPES.map((t) => {
+          const n = countOf(t);
+          return (
+            <div className="steprow" key={t}>
+              <span className={n === 0 ? 'off' : ''}>{ITEM_LABEL[t]}</span>
+              <div className="stepper">
+                <button className="mini" disabled={n === 0}
+                  onClick={() => removeItem(t)} aria-label={`Remove ${ITEM_LABEL[t]}`}>−</button>
+                <b>{n}</b>
+                <button className="mini" onClick={() => addItem(t)}
+                  aria-label={`Add ${ITEM_LABEL[t]}`}>+</button>
+              </div>
+            </div>
+          );
+        })}
+        <div className="note">Set any item to 0 to leave it out. Drag items on the floor to reposition.</div>
       </section>
 
       <section>
@@ -286,7 +290,8 @@ export function Controls({
 
       <section>
         <h2>Seating &amp; light</h2>
-        <label>Chairs per table: <b>{cfg.chairsPerTable}</b>
+        <label className={countOf('table') === 0 ? 'disabled' : ''}>
+          Chairs per table: <b>{cfg.chairsPerTable}</b>
           <input type="range" min={2} max={8} step={1} value={cfg.chairsPerTable}
             onChange={(e) => set({ chairsPerTable: +e.target.value })} />
         </label>
@@ -298,6 +303,11 @@ export function Controls({
           <input type="checkbox" checked={cfg.showSpotBeams}
             onChange={(e) => set({ showSpotBeams: e.target.checked })} />
           Show spotlight beams
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={cfg.showHall}
+            onChange={(e) => set({ showHall: e.target.checked })} />
+          Show exhibition hall around stall
         </label>
       </section>
 
@@ -317,7 +327,6 @@ export function Controls({
 export function SpecPanel({ cfg, specs, onPng, onTxt }: {
   cfg: Config; specs: Specs; onPng: () => void; onTxt: () => void;
 }) {
-  const c = defaultCounts(specs.area);
   return (
     <aside className="panel right">
       <h2 className="top">Specification</h2>

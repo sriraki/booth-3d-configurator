@@ -4,12 +4,12 @@ import { OrbitControls, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import Scene from './Scene';
 import { Controls, SpecPanel } from './Sidebar';
-import { autoLayout, autoTvs, computeSpecs, wallsFor, fasciaEdges } from './booth';
+import { autoLayout, autoTvs, computeSpecs, wallsFor, fasciaEdges, anchorFor } from './booth';
 import { TOTAL_H } from './constants';
-import type { Config, Placement, Tv } from './types';
+import type { Config, ItemType, Placement, Tv } from './types';
 import {
   DEFAULT_ARTWORK, buildArtworkTexture, loadImage, surfacePrint, surfaceLabel,
-  type Artwork, type SurfaceId,
+  liveSurfaces, type Artwork, type SurfaceId,
 } from './artwork';
 import * as store from './storage';
 
@@ -17,7 +17,7 @@ const INITIAL: Config = {
   width: 3, depth: 3, openSides: 1, mirror: false,
   companyName: 'COMPANY NAME', logo: null,
   carpet: '#5a5f66', fasciaColor: '#ffffff', fasciaTextColor: '#14181c',
-  showSpotBeams: false, ambient: 0.55, chairsPerTable: 4,
+  showSpotBeams: false, showHall: true, ambient: 0.55, chairsPerTable: 4,
 };
 
 /** Drag events don't flow through R3F's pointer system, so the raycast for
@@ -102,6 +102,27 @@ export default function App() {
   const onMove = (id: string, x: number, z: number) =>
     setPlacements((ps) => ps.map((p) => (p.id === id ? { ...p, x, z } : p)));
 
+  // --- Furniture: every type can be taken to zero and put back -------------
+  const addItem = (type: ItemType) =>
+    setPlacements((ps) => {
+      const i = ps.filter((p) => p.type === type).length;
+      return [...ps, { id: `${type}-${Date.now()}`, type, ...anchorFor(type, i, cfg) }];
+    });
+
+  const removeItem = (type: ItemType) =>
+    setPlacements((ps) => {
+      for (let i = ps.length - 1; i >= 0; i--) {
+        if (ps[i].type === type) {
+          const gone = ps[i];
+          if (selected === gone.id) setSelected(null);
+          return ps.filter((_, j) => j !== i);
+        }
+      }
+      return ps;
+    });
+
+  const countOf = (type: ItemType) => placements.filter((p) => p.type === type).length;
+
   // --- Artwork textures ---------------------------------------------------
   // Rebuilt only for surfaces whose Artwork object actually changed; editing
   // one panel on a 6x6 stall must not re-composite the other seventeen.
@@ -109,8 +130,10 @@ export default function App() {
     let dead = false;
     (async () => {
       const cache = texCache.current;
+      const live = liveSurfaces(cfg, placements);
       const next: Record<SurfaceId, THREE.Texture> = {};
       for (const [id, art] of Object.entries(artworks)) {
+        if (!live.has(id)) continue;   // kept in state, just not on screen
         const hit = cache.get(id);
         if (hit && hit.art === art) { next[id] = hit.tex; continue; }
         const spec = surfacePrint(id, cfg);
@@ -130,7 +153,7 @@ export default function App() {
       if (!dead) setArtTex(next);
     })();
     return () => { dead = true; };
-  }, [artworks, cfg.width, cfg.depth]);
+  }, [artworks, cfg, placements]);
 
   // --- Drop targeting -----------------------------------------------------
   const surfaceAt = (clientX: number, clientY: number): SurfaceId | null => {
@@ -204,13 +227,38 @@ export default function App() {
       return rest;
     });
 
+  // Artwork for a deleted counter or kiosk can never be reached again, so it
+  // is released. Panel and fascia artwork is kept even when the footprint
+  // shrinks, so resizing back restores it instead of silently losing work.
+  useEffect(() => {
+    const live = liveSurfaces(cfg, placements);
+    setArtworks((a) => {
+      let changed = false;
+      const out: Record<SurfaceId, Artwork> = {};
+      for (const [id, art] of Object.entries(a)) {
+        const kind = id.split(':')[0];
+        if ((kind === 'counter' || kind === 'kiosk') && !live.has(id)) {
+          URL.revokeObjectURL(art.src);
+          changed = true;
+          continue;
+        }
+        out[id] = art;
+      }
+      return changed ? out : a;
+    });
+    if (selectedSurface && !live.has(selectedSurface)) setSelectedSurface(null);
+  }, [placements, cfg]);
+
   // --- Persistence --------------------------------------------------------
   useEffect(() => {
     (async () => {
       const snap = await store.load();
       if (snap) {
-        prevKey.current = `${snap.cfg.width}|${snap.cfg.depth}|${snap.cfg.openSides}|${snap.cfg.mirror}`;
-        setCfg(snap.cfg);
+        // Merge over INITIAL: a session saved before a setting existed would
+        // otherwise restore it as undefined and silently disable the feature.
+        const cfg = { ...INITIAL, ...snap.cfg };
+        prevKey.current = `${cfg.width}|${cfg.depth}|${cfg.openSides}|${cfg.mirror}`;
+        setCfg(cfg);
         setPlacements(snap.placements);
         setTvs(snap.tvs);
         setArtworks(snap.artworks);
@@ -298,6 +346,7 @@ export default function App() {
         tvs={tvs} setTvs={setTvs}
         placements={placements} setPlacements={setPlacements}
         onReset={reset} view={view} setView={setView}
+        addItem={addItem} removeItem={removeItem} countOf={countOf}
         artworks={artworks} selectedSurface={selectedSurface}
         onPickSurface={setSelectedSurface}
         updateArt={updateArt} clearArt={clearArt}
@@ -323,8 +372,8 @@ export default function App() {
           }}
           onPointerMissed={() => setSelected(null)}
         >
-          <color attach="background" args={['#1a1d21']} />
-          <fog attach="fog" args={['#1a1d21', 22, 55]} />
+          <color attach="background" args={[cfg.showHall ? '#2a2d32' : '#1a1d21']} />
+          <fog attach="fog" args={[cfg.showHall ? '#2a2d32' : '#1a1d21', 26, 70]} />
           <Capture sink={three} />
           <CameraRig view={view} cfg={cfg} controls={controls} />
           <Suspense fallback={null}>
@@ -337,6 +386,7 @@ export default function App() {
               selectedSurface={selectedSurface}
               onPickSurface={setSelectedSurface}
               showSafeArea={showSafeArea}
+              view={view}
             />
           </Suspense>
           <ContactShadows position={[0, 0.012, 0]} opacity={0.42}

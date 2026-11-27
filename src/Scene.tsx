@@ -201,6 +201,104 @@ function Fascia({ cfg, texFor, ctx }: { cfg: Config; texFor: (len: number) => TH
   );
 }
 
+// ---------------------------------------------------------------------------
+// Exhibition hall surroundings. Neighbouring stalls, aisle carpet and a truss
+// ceiling give the render a sense of scale and stop the stall floating in a
+// void. Deliberately low detail: it is context, never the subject.
+// ---------------------------------------------------------------------------
+
+const NEIGHBOUR_TONES = ['#d9d9d4', '#cfd4d8', '#e0ddd6', '#d2d6d2', '#dad6d9'];
+const FASCIA_TONES = ['#8f99a3', '#9c8f86', '#889a92', '#9a93a3', '#94a0a8'];
+
+function Neighbour({ w, d, tone, seed }: { w: number; d: number; tone: number; seed: number }) {
+  const h = 2.5;
+  return (
+    <group>
+      <mesh position={[0, h / 2, 0]} receiveShadow>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial color={NEIGHBOUR_TONES[tone % NEIGHBOUR_TONES.length]} roughness={0.96} />
+      </mesh>
+      {/* fascia band facing the aisle */}
+      <mesh position={[0, h - 0.15, d / 2 + 0.03]}>
+        <boxGeometry args={[w, 0.3, 0.07]} />
+        <meshStandardMaterial color={FASCIA_TONES[seed % FASCIA_TONES.length]} roughness={0.85} />
+      </mesh>
+    </group>
+  );
+}
+
+function Hall({ cfg }: { cfg: Config }) {
+  const { width: W, depth: D } = cfg;
+  const AISLE = 3;
+  const walls = wallsFor(cfg.openSides, cfg.mirror);
+  const hasLeft = walls.includes('left');
+  const hasRight = walls.includes('right');
+
+  return (
+    <group>
+      {/* aisle carpet running across the open frontage */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.004, D / 2 + AISLE / 2]} receiveShadow>
+        <planeGeometry args={[Math.max(28, W * 5), AISLE]} />
+        <meshStandardMaterial color="#6d3d3d" roughness={1} />
+      </mesh>
+
+      {/* Opposite row, with a deliberate gap directly across from the stall.
+          Without it the front-elevation camera -- which has to stand back far
+          enough to frame the full frontage -- ends up behind that stall and
+          sees nothing but its back. The gap reads as a cross-aisle. */}
+      {[-2, -1, 1, 2].map((i) => (
+        <group key={`opp${i}`} position={[i * (W + 0.3), 0, D / 2 + AISLE + 1.6]}>
+          <Neighbour w={W} d={3.2} tone={i + 2} seed={i + 1} />
+        </group>
+      ))}
+
+      {/* back-to-back row behind the stall */}
+      {[-1, 0, 1].map((i) => (
+        <group key={`back${i}`} position={[i * (W + 0.3), 0, -D / 2 - 1.7]}
+          rotation={[0, Math.PI, 0]}>
+          <Neighbour w={W} d={3.2} tone={i + 4} seed={i + 3} />
+        </group>
+      ))}
+
+      {/* immediate neighbours, only where this stall is actually walled in */}
+      {hasLeft && (
+        <group position={[-W / 2 - 1.6, 0, 0]}>
+          <Neighbour w={3} d={D} tone={1} seed={2} />
+        </group>
+      )}
+      {hasRight && (
+        <group position={[W / 2 + 1.6, 0, 0]}>
+          <Neighbour w={3} d={D} tone={3} seed={4} />
+        </group>
+      )}
+
+      {/* hall ceiling and a few truss runs well above the stalls */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 7.5, 0]}>
+        <planeGeometry args={[70, 70]} />
+        <meshStandardMaterial color="#23262a" roughness={1} side={THREE.FrontSide} />
+      </mesh>
+      {[-10, -5, 0, 5, 10].map((x) => (
+        <mesh key={`tr${x}`} position={[x, 6.6, 0]}>
+          <boxGeometry args={[0.18, 0.18, 60]} />
+          <meshStandardMaterial color="#3a3f45" metalness={0.5} roughness={0.6} />
+        </mesh>
+      ))}
+      {[-18, -6, 6, 18].map((z) => (
+        <mesh key={`tz${z}`} position={[0, 6.45, z]}>
+          <boxGeometry args={[46, 0.16, 0.16]} />
+          <meshStandardMaterial color="#3a3f45" metalness={0.5} roughness={0.6} />
+        </mesh>
+      ))}
+
+      {/* high bay lights so the surroundings are not pitch black */}
+      {[[-8, 12], [8, 12], [-8, -12], [8, -12], [0, 0]].map(([x, z], i) => (
+        <pointLight key={`hb${i}`} position={[x, 6.2, z]} intensity={28} distance={26}
+          color="#cfd8e3" />
+      ))}
+    </group>
+  );
+}
+
 function Carpet({ cfg }: { cfg: Config }) {
   const tex = useMemo(() => {
     const t = makeCarpetTexture(cfg.carpet);
@@ -521,7 +619,7 @@ function Draggable({
 
 export default function Scene({
   cfg, placements, tvs, onMove, setOrbit, selected, onSelect,
-  artTex, hoverSurface, selectedSurface, onPickSurface, showSafeArea,
+  artTex, hoverSurface, selectedSurface, onPickSurface, showSafeArea, view,
 }: {
   cfg: Config; placements: Placement[]; tvs: Tv[];
   onMove: (id: string, x: number, z: number) => void;
@@ -532,6 +630,7 @@ export default function Scene({
   selectedSurface: SurfaceId | null;
   onPickSurface: (id: SurfaceId) => void;
   showSafeArea: boolean;
+  view: string;
 }) {
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
@@ -571,9 +670,11 @@ export default function Scene({
     <group>
       {/* hall floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[60, 60]} />
-        <meshStandardMaterial color="#6e4b4b" roughness={1} />
+        <planeGeometry args={[70, 70]} />
+        <meshStandardMaterial color={cfg.showHall ? '#4a4d52' : '#6e4b4b'} roughness={1} />
       </mesh>
+
+      {cfg.showHall && view !== 'top' && <Hall cfg={cfg} />}
 
       <Carpet cfg={cfg} />
       <Walls cfg={cfg} ctx={ctx} />

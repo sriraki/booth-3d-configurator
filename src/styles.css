@@ -209,3 +209,23 @@ h2 .check.tight input { width: 11px; height: 11px; }
   from { opacity: 0; transform: translate(-50%, -6px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* --- furniture steppers --------------------------------------------------- */
+.steprow {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 4px 0; font-size: 11.5px;
+}
+.steprow > span { color: var(--fg); }
+.steprow > span.off { color: var(--mut); text-decoration: line-through; }
+.stepper { display: flex; align-items: center; gap: 4px; flex: none; }
+.stepper button {
+  width: 22px; height: 22px; padding: 0; line-height: 1;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+}
+.stepper button:disabled { opacity: .32; cursor: default; }
+.stepper button:disabled:hover { background: var(--panel2); }
+.stepper b {
+  min-width: 16px; text-align: center;
+  font-variant-numeric: tabular-nums; font-size: 12px;
+}
+label.disabled { opacity: .4; pointer-events: none; }

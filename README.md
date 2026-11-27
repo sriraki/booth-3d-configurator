@@ -46,8 +46,13 @@ fascia to 6 panels / 18 m fascia. Both are cost drivers, so both are reported li
 - Work auto-saves to the browser, so a reload keeps your artwork
 
 ### Layout
+- Every furniture type is a count you control: counter, coffee table + chairs,
+  cabinet, kiosk and bin can each be taken to zero and put back
 - Auto-layout of counter, seating clusters, cabinet, kiosks and spotlights,
   scaled pro-rata from the 9 sqm reference package
+- Exhibition hall surroundings: neighbouring stalls, aisle carpet and a truss
+  ceiling, so the stall is seen in context rather than floating in a void
+  (toggle off for clean product shots)
 - Drag any floor item on a snapping grid to override
 - Wall-mounted TVs (32"–86") that snap to panel boundaries and report how many
   panels they blank

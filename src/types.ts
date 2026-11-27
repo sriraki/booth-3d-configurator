@@ -28,6 +28,7 @@ export interface Config {
   fasciaColor: string;
   fasciaTextColor: string;
   showSpotBeams: boolean;
+  showHall: boolean;
   ambient: number;
   chairsPerTable: number;
 }
