@@ -3,7 +3,8 @@ export type EdgeId = 'front' | 'left' | 'right';
 export type ItemType =
   'counter' | 'table' | 'cabinet' | 'kiosk' | 'bin' | 'steps'
   | 'glasscase' | 'standeeGirl' | 'standeeBoy' | 'photobooth' | 'modelcase'
-  | 'modelMentorship' | 'modelAedp' | 'bookwallU';
+  | 'modelMentorship' | 'modelAedp' | 'bookwallU'
+  | 'mannequinGirl' | 'mannequinBoy' | 'figureGroup';
 
 /** 'a' and 'b' share one back wall; 'c' stands diagonally across the aisle. */
 export type StallId = 'a' | 'b' | 'c';
@@ -28,6 +29,8 @@ export type Kit = Partial<Record<ItemType, number>> & {
    * a designed stand is a drawing, not a set of rules.
    */
   layout?: { type: ItemType; x: number; z: number; rotY?: number }[];
+  /** Printed titles fixed to named wall panels; artwork dropped on top wins. */
+  panels?: { wall: WallId; i: number; title: string }[];
 };
 
 export interface Tv {

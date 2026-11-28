@@ -5,7 +5,7 @@ import {
   PANEL_LEAF, PANEL_ZONE_H, POST_W, TOTAL_H, FASCIA_H, FASCIA_PRINT_H, WALL_T,
   COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_DEPTH, tvCentreH,
   AISLE_W, STEP, STEP_HEIGHTS, STEP_LABEL_H, STEP_TOPICS,
-  GCASE, STANDEE, PHOTO, MCASE, MCASE_TITLE, DTABLE, MODEL_TITLES, BWALL,
+  GCASE, STANDEE, PHOTO, MCASE, MCASE_TITLE, DTABLE, MODEL_TITLES, BWALL, MANNEQUIN,
 } from './constants';
 import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, edgePoint,
@@ -19,7 +19,7 @@ import {
   makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture,
   makeTileTexture, makeStepLabelTexture, makeStandeeTexture, makePhotoBackdrop,
   makePlinthTexture, makeBandTexture, makeMentorshipHeader, makeTierTexture,
-  makeFloralFrame,
+  makeFloralFrame, makePanelTitle,
 } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -109,7 +109,11 @@ function Surface({
   );
 }
 
-function Walls({ cfg, ctx }: { cfg: Config; ctx: SurfaceCtx }) {
+function Walls({ cfg, ctx, panelTex }: {
+  cfg: Config; ctx: SurfaceCtx;
+  /** Printed panel titles. Artwork dropped on a panel still wins over these. */
+  panelTex?: Map<string, THREE.Texture>;
+}) {
   const { width: W, depth: D } = cfg;
   const walls = wallsFor(cfg.openSides, cfg.mirror);
   return (
@@ -129,7 +133,7 @@ function Walls({ cfg, ctx }: { cfg: Config; ctx: SurfaceCtx }) {
                   </mesh>
                   <group position={[0, 0, WALL_T / 2 + 0.003]}>
                     <Surface id={`panel:${w}:${i}`} w={PANEL_LEAF} h={PANEL_ZONE_H}
-                      ctx={ctx} frameMm={15} />
+                      ctx={ctx} frameMm={15} fallback={panelTex?.get(`${w}:${i}`)} />
                   </group>
                 </group>
               );
@@ -1082,6 +1086,180 @@ function ModelCase({ caption }: { caption: THREE.Texture }) {
 // ---------------------------------------------------------------------------
 
 /** The table a scale model stands on, with a caption on its front rail. */
+// ---------------------------------------------------------------------------
+// People: uniform mannequins on stands, and the visitors and staff that make
+// a stall read at human scale.
+// ---------------------------------------------------------------------------
+
+const SKIN = ['#e0ac7e', '#c68642', '#8d5524', '#f0c8a0'];
+
+/**
+ * A uniform display mannequin: a featureless form on a disc base, wearing the
+ * garments. Deliberately faceless -- that is what distinguishes a mannequin
+ * from a figure of a person.
+ */
+function Mannequin({ girl }: { girl: boolean }) {
+  const FORM = { color: '#e8e3d9', roughness: 0.55, metalness: 0.05 };
+  const NAVY = { color: '#15306d', roughness: 0.8 };
+  const SHIRT = { color: '#fbfbfa', roughness: 0.85 };
+  const h = MANNEQUIN.h;
+  return (
+    <group>
+      {/* base and post */}
+      <mesh position={[0, 0.012, 0]} receiveShadow castShadow>
+        <cylinderGeometry args={[MANNEQUIN.base, MANNEQUIN.base * 1.08, 0.024, 28]} />
+        <meshStandardMaterial color="#b9bfc5" metalness={0.6} roughness={0.35} />
+      </mesh>
+      <mesh position={[0, 0.2, 0]} castShadow>
+        <cylinderGeometry args={[0.018, 0.022, 0.38, 12]} />
+        <meshStandardMaterial color="#b9bfc5" metalness={0.6} roughness={0.35} />
+      </mesh>
+
+      {/* legs */}
+      {[-1, 1].map((e) => (
+        <mesh key={e} position={[e * 0.07, 0.58, 0]} castShadow>
+          <cylinderGeometry args={[0.052, 0.062, 0.52, 14]} />
+          <meshStandardMaterial {...FORM} />
+        </mesh>
+      ))}
+      {/* socks + shoes, since a uniform display includes them */}
+      {[-1, 1].map((e) => (
+        <group key={`f${e}`}>
+          <mesh position={[e * 0.07, 0.4, 0]} castShadow>
+            <cylinderGeometry args={[0.055, 0.058, 0.16, 14]} />
+            <meshStandardMaterial {...SHIRT} />
+          </mesh>
+          <mesh position={[e * 0.07, 0.33, 0.02]} castShadow>
+            <boxGeometry args={[0.1, 0.06, 0.2]} />
+            <meshStandardMaterial color="#23262b" roughness={0.6} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* hips / skirt or shorts */}
+      {girl ? (
+        <mesh position={[0, 0.98, 0]} castShadow>
+          <cylinderGeometry args={[0.17, 0.3, 0.46, 20]} />
+          <meshStandardMaterial {...NAVY} />
+        </mesh>
+      ) : (
+        <mesh position={[0, 0.83, 0]} castShadow>
+          <cylinderGeometry args={[0.17, 0.2, 0.26, 18]} />
+          <meshStandardMaterial {...NAVY} />
+        </mesh>
+      )}
+
+      {/* torso in the shirt */}
+      <mesh position={[0, 1.22, 0]} castShadow>
+        <cylinderGeometry args={[0.15, 0.17, 0.42, 20]} />
+        <meshStandardMaterial {...SHIRT} />
+      </mesh>
+      {/* arms */}
+      {[-1, 1].map((e) => (
+        <mesh key={e} position={[e * 0.19, 1.2, 0]} rotation={[0, 0, e * 0.1]} castShadow>
+          <cylinderGeometry args={[0.042, 0.05, 0.44, 12]} />
+          <meshStandardMaterial {...SHIRT} />
+        </mesh>
+      ))}
+      {/* tie */}
+      <mesh position={[0, 1.26, 0.152]} castShadow>
+        <boxGeometry args={[0.05, 0.28, 0.012]} />
+        <meshStandardMaterial {...NAVY} />
+      </mesh>
+      {girl && (
+        <mesh position={[0, 1.18, 0]} castShadow>
+          <cylinderGeometry args={[0.175, 0.185, 0.2, 20]} />
+          <meshStandardMaterial {...NAVY} />
+        </mesh>
+      )}
+      {/* shoulders and a blank head form */}
+      <mesh position={[0, 1.46, 0]} castShadow>
+        <cylinderGeometry args={[0.055, 0.075, 0.1, 14]} />
+        <meshStandardMaterial {...FORM} />
+      </mesh>
+      <mesh position={[0, h - 0.04, 0]} castShadow>
+        <sphereGeometry args={[0.1, 20, 16]} />
+        <meshStandardMaterial {...FORM} />
+      </mesh>
+    </group>
+  );
+}
+
+/** One person, built to a height so the same part makes adults and children. */
+function Person({ h, top, bottom, skin, hair, bag = false }: {
+  h: number; top: string; bottom: string; skin: string; hair: string; bag?: boolean;
+}) {
+  const u = h / 1.7;
+  return (
+    <group>
+      {[-1, 1].map((e) => (
+        <mesh key={e} position={[e * 0.065 * u, 0.4 * u, 0]} castShadow>
+          <cylinderGeometry args={[0.05 * u, 0.058 * u, 0.8 * u, 12]} />
+          <meshStandardMaterial color={bottom} roughness={0.85} />
+        </mesh>
+      ))}
+      {[-1, 1].map((e) => (
+        <mesh key={`s${e}`} position={[e * 0.065 * u, 0.025 * u, 0.02 * u]} castShadow>
+          <boxGeometry args={[0.1 * u, 0.05 * u, 0.2 * u]} />
+          <meshStandardMaterial color="#23262b" roughness={0.7} />
+        </mesh>
+      ))}
+      <mesh position={[0, 1.05 * u, 0]} castShadow>
+        <cylinderGeometry args={[0.14 * u, 0.16 * u, 0.5 * u, 16]} />
+        <meshStandardMaterial color={top} roughness={0.85} />
+      </mesh>
+      {[-1, 1].map((e) => (
+        <mesh key={`a${e}`} position={[e * 0.185 * u, 1.03 * u, 0]} rotation={[0, 0, e * 0.12]} castShadow>
+          <cylinderGeometry args={[0.04 * u, 0.045 * u, 0.46 * u, 10]} />
+          <meshStandardMaterial color={top} roughness={0.85} />
+        </mesh>
+      ))}
+      <mesh position={[0, 1.34 * u, 0]} castShadow>
+        <cylinderGeometry args={[0.05 * u, 0.06 * u, 0.08 * u, 12]} />
+        <meshStandardMaterial color={skin} roughness={0.8} />
+      </mesh>
+      <mesh position={[0, 1.46 * u, 0]} castShadow>
+        <sphereGeometry args={[0.1 * u, 18, 14]} />
+        <meshStandardMaterial color={skin} roughness={0.8} />
+      </mesh>
+      <mesh position={[0, 1.5 * u, -0.012 * u]} castShadow>
+        <sphereGeometry args={[0.102 * u, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.62]} />
+        <meshStandardMaterial color={hair} roughness={0.9} />
+      </mesh>
+      {bag && (
+        <mesh position={[0, 1.05 * u, -0.17 * u]} castShadow>
+          <boxGeometry args={[0.22 * u, 0.3 * u, 0.1 * u]} />
+          <meshStandardMaterial color="#c0392b" roughness={0.85} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+/** An instructor with a small group of students, facing them. */
+function FigureGroup() {
+  const kids = [
+    { x: -0.46, z: 0.26, h: 1.26, top: '#fbfbfa', bottom: '#15306d', hair: '#241a14', a: 0.25 },
+    { x: -0.14, z: 0.40, h: 1.2, top: '#fbfbfa', bottom: '#15306d', hair: '#2b1d14', a: 0.1 },
+    { x: 0.2, z: 0.34, h: 1.32, top: '#fbfbfa', bottom: '#15306d', hair: '#1c1510', a: -0.12 },
+    { x: 0.5, z: 0.2, h: 1.22, top: '#fbfbfa', bottom: '#15306d', hair: '#3a2a1c', a: -0.3 },
+  ];
+  return (
+    <group>
+      {/* instructor, turned to face the group */}
+      <group position={[0.1, 0, -0.34]} rotation={[0, Math.PI, 0]}>
+        <Person h={1.7} top="#1f6fd0" bottom="#2c3138" skin={SKIN[1]} hair="#1b1510" />
+      </group>
+      {kids.map((k, i) => (
+        <group key={i} position={[k.x, 0, k.z]} rotation={[0, k.a, 0]}>
+          <Person h={k.h} top={k.top} bottom={k.bottom} skin={SKIN[i % SKIN.length]}
+            hair={k.hair} bag={i % 2 === 0} />
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function DisplayTable({ caption }: { caption: THREE.Texture }) {
   const { w, d, h, top } = DTABLE;
   return (
@@ -1804,6 +1982,13 @@ function Stall({
   const stepLabels = useMemo(() => STEP_TOPICS.map(makeStepLabelTexture), []);
   const standeeTex = useMemo(
     () => ({ girl: makeStandeeTexture('girl'), boy: makeStandeeTexture('boy') }), []);
+  const panelTex = useMemo(() => {
+    const m = new Map<string, THREE.Texture>();
+    for (const p of cfg.kit?.[stall]?.panels ?? []) {
+      m.set(`${p.wall}:${p.i}`, makePanelTitle(p.title));
+    }
+    return m;
+  }, [cfg.kit, stall]);
   const frameTex = useMemo(
     () => makeFloralFrame(PHOTO.w, PHOTO.h, PHOTO.openW, PHOTO.openH), []);
   const plinthTex = useMemo(() => makePlinthTexture(MCASE_TITLE), []);
@@ -1830,7 +2015,7 @@ function Stall({
   return (
     <group>
       <Carpet cfg={cfg} />
-      <Walls cfg={cfg} ctx={ctx} />
+      <Walls cfg={cfg} ctx={ctx} panelTex={panelTex} />
       <Fascia cfg={cfg} texFor={texFor} ctx={ctx} />
       <Lighting cfg={cfg} />
       <TrimLight cfg={cfg} />
@@ -1866,6 +2051,9 @@ function Stall({
           {p.type === 'standeeBoy' && <Standee tex={standeeTex.boy} />}
           {p.type === 'photobooth' && <PhotoFrame tex={frameTex} />}
           {p.type === 'bookwallU' && <BookWallU />}
+          {p.type === 'mannequinGirl' && <Mannequin girl />}
+          {p.type === 'mannequinBoy' && <Mannequin girl={false} />}
+          {p.type === 'figureGroup' && <FigureGroup />}
           {p.type === 'modelcase' && <ModelCase caption={plinthTex} />}
           {p.type === 'modelMentorship' && (
             <group>

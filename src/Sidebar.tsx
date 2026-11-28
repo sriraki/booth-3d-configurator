@@ -29,6 +29,7 @@ export function Controls({
   artworks, selectedSurface, onPickSurface, updateArt, clearArt,
   showSafeArea, setShowSafeArea, assign,
   exportW, setExportW, exportImage, exportAllAngles, angles,
+  exportCloseups, itemCount,
 }: {
   cfg: Config; set: (p: Partial<Config>) => void;
   /** The stall being edited, and a setter that writes to its own fields. */
@@ -66,6 +67,8 @@ export function Controls({
   exportImage: (w: number) => void;
   exportAllAngles: (w: number) => void;
   angles: string[];
+  exportCloseups: (w: number) => void;
+  itemCount: number;
 }) {
   const walls = wallsFor(scfg.openSides, scfg.mirror);
 
@@ -524,6 +527,9 @@ export function Controls({
         </button>
         <button className="ghost full" onClick={() => exportAllAngles(exportW)}>
           Export all {angles.length} angles of this stall
+        </button>
+        <button className="ghost full" onClick={() => exportCloseups(exportW)}>
+          Export {itemCount} close-ups — one per item
         </button>
         <div className="note">
           {angles.join(' · ')} — saved one file each, named for the stall.

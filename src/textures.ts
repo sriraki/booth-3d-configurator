@@ -512,3 +512,34 @@ export function makeFloralFrame(wM: number, hM: number, openW: number, openH: nu
   });
   return tex;
 }
+
+/** A title printed across a wall panel, centred. */
+export function makePanelTitle(title: string, bg = '#11224a', fg = '#ffc425') {
+  return canvasTexture(0.96, 2.18, (ctx, w, h) => {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, bg);
+    g.addColorStop(1, '#0a1733');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(255,196,37,0.55)';
+    ctx.lineWidth = Math.max(1, w * 0.012);
+    ctx.strokeRect(w * 0.08, h * 0.05, w * 0.84, h * 0.9);
+
+    // The panel is tall and narrow, so the title is set across it, centred.
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = fg;
+    const size = fitText(ctx, title, w * 0.74, w * 0.2);
+    ctx.font = `800 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText(title, 0, 0);
+
+    ctx.fillStyle = '#ffffff';
+    const s2 = fitText(ctx, 'INNOVATE · BUILD · PRESENT', w * 0.7, w * 0.075);
+    ctx.font = `600 ${s2}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('INNOVATE · BUILD · PRESENT', 0, size * 0.95);
+    ctx.restore();
+  });
+}

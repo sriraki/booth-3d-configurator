@@ -7,7 +7,8 @@ import { Controls, SpecPanel } from './Sidebar';
 import {
   autoLayout, autoLayoutAll, autoTvs, autoTvsAll, computeSpecs, wallsFor, fasciaEdges,
   anchorFor, nextTvSlot, wallLength, stallCfg, stallLabel, stallOf, stallsOf,
-  arrangementBounds, STALL_ROLE, STALL_ANGLES, stallCamera, type StallAngle,
+  arrangementBounds, STALL_ROLE, STALL_ANGLES, stallCamera, itemCamera, ITEM_LABEL,
+  type StallAngle,
 } from './booth';
 import { TOTAL_H, TV_DEFAULT_IDX, TV_SIZES, AISLE_W, LED_8X6_IDX } from './constants';
 import type { Config, ItemType, Placement, StallId, Tv, TvMedia } from './types';
@@ -21,7 +22,7 @@ import * as store from './storage';
  *  sides, the furniture kit, seating. A session saved against an older design
  *  would otherwise pin defaults the design has since moved on from, so it
  *  starts from the new one. Artwork and screen media are kept either way. */
-const CFG_REV = 12;
+const CFG_REV = 13;
 
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
@@ -62,17 +63,23 @@ const INITIAL: Config = {
       // niche. The wall-mounted screen shows THROUGH the open-backed niche,
       // which is what puts it in the recess rather than in front of it.
       tvs: 1, tvSizeIdx: TV_DEFAULT_IDX,
+      // The 5th panel of the 6 m back wall is centred on x = +1.5:
+      // panel i sits at -W/2 + i + 0.5, so i = 4 lands at 1.5.
+      panels: [{ wall: 'back', i: 4, title: 'HACKATHON' }],
       layout: [
         { type: 'bookwallU', x: 2.775, z: 0, rotY: -Math.PI / 2 },
-        { type: 'modelcase', x: 0, z: 0 },                    // centre of the stall
-        { type: 'counter', x: -2.30, z: 0.55, rotY: 0.45 },   // helpdesk, open corner
-        { type: 'table', x: 1.55, z: -0.15 },
+        // Dead centre of the stall: x = 0, z = 0 in a 6 x 3 m footprint.
+        { type: 'modelcase', x: 0, z: 0 },
+        // Instructor and four students in front of the Hackathon panel.
+        { type: 'figureGroup', x: 1.50, z: -0.95 },
+        { type: 'counter', x: -2.45, z: 0.55, rotY: 0.45 },   // helpdesk, open corner
+        { type: 'table', x: -1.70, z: -0.62 },
         // The photo frame stands at the exit, turned to the aisle.
-        { type: 'photobooth', x: -1.00, z: 1.15, rotY: 0.4 },
-        // Standees flank the way out, clear of the sight line to the vitrine.
-        { type: 'standeeGirl', x: -2.60, z: 1.20 },
-        { type: 'standeeBoy', x: 1.90, z: 1.20 },
-        { type: 'bin', x: 2.30, z: -1.25 },
+        { type: 'photobooth', x: -1.00, z: 1.15, rotY: 0.35 },
+        // Uniform mannequins either side of the frontage.
+        { type: 'mannequinGirl', x: -2.60, z: 1.20, rotY: 0.2 },
+        { type: 'mannequinBoy', x: 1.90, z: 1.20, rotY: -0.2 },
+        { type: 'bin', x: 2.40, z: -1.25 },
       ],
     },
   },
@@ -96,8 +103,8 @@ function Capture({ sink }: { sink: React.MutableRefObject<any> }) {
   return null;
 }
 
-function CameraRig({ view, cfg, stall, controls }: {
-  view: string; cfg: Config; stall: StallId; controls: any;
+function CameraRig({ view, cfg, stall, placements, controls }: {
+  view: string; cfg: Config; stall: StallId; placements: Placement[]; controls: any;
 }) {
   const { camera, size } = useThree();
   useEffect(() => {
@@ -112,10 +119,13 @@ function CameraRig({ view, cfg, stall, controls }: {
     const fit = (w: number, h: number) =>
       Math.max((w / 2) / Math.tan(hFov / 2), (h / 2) / Math.tan(vFov / 2)) * 1.18;
 
-    // An "angle:<name>" view frames the stall being edited from that angle.
-    if (view.startsWith('angle:')) {
-      const a = view.slice(6) as StallAngle;
-      const shot = stallCamera(cfg, stall, a);
+    // "angle:<name>" frames the whole stall; "item:<id>" frames one piece.
+    const item = view.startsWith('item:')
+      ? placements.find((p) => p.id === view.slice(5)) : undefined;
+    if (view.startsWith('angle:') || item) {
+      const shot = item
+        ? itemCamera(cfg, stall, item)
+        : stallCamera(cfg, stall, view.slice(6) as StallAngle);
       // Distance comes from the canvas, not a constant: a fixed stand-off
       // crops the stall on a narrow window, and the whole booth has to be in
       // frame for these to be of any use as presentation images.
@@ -171,7 +181,7 @@ function CameraRig({ view, cfg, stall, controls }: {
       controls.current.target.set(t[0], t[1], t[2]);
       controls.current.update();
     }
-  }, [view, stall, cfg, camera, controls, size.width, size.height]);
+  }, [view, stall, cfg, placements, camera, controls, size.width, size.height]);
   return null;
 }
 
@@ -631,6 +641,25 @@ export default function App() {
     setToast(`Exported ${STALL_ANGLES.length} angles of the ${role} stall`);
   };
 
+  /** A close-up of every piece in the stall being edited. */
+  const exportCloseups = async (targetW: number) => {
+    const role = STALL_ROLE[stall];
+    const was = view;
+    let n = 0;
+    for (const p of myPlacements) {
+      setView(`item:${p.id}`);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 140));
+      const shot = renderAt(targetW);
+      if (!shot) break;
+      const label = ITEM_LABEL[p.type].replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      download(shot.url, `${role}_closeup_${String(++n).padStart(2, '0')}_${label}.png`);
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    setView(was);
+    setToast(`Exported ${n} close-up${n === 1 ? '' : 's'} of the ${role} stall`);
+  };
+
   const exportImage = (targetW: number) => {
     const t = three.current;
     const gl = glRef.current;
@@ -755,6 +784,7 @@ export default function App() {
         assign={assign}
         exportW={exportW} setExportW={setExportW} exportImage={exportImage}
         exportAllAngles={exportAllAngles} angles={STALL_ANGLES as unknown as string[]}
+        exportCloseups={exportCloseups} itemCount={myPlacements.length}
       />
 
       <div
@@ -778,7 +808,8 @@ export default function App() {
           <color attach="background" args={[cfg.showHall ? '#cfcdc8' : '#1a1d21']} />
           <fog attach="fog" args={[cfg.showHall ? '#cfcdc8' : '#1a1d21', 44, 96]} />
           <Capture sink={three} />
-          <CameraRig view={view} cfg={cfg} stall={stall} controls={controls} />
+          <CameraRig view={view} cfg={cfg} stall={stall} placements={placements}
+            controls={controls} />
           <Suspense fallback={null}>
             <Scene
               cfg={cfg} placements={placements} tvs={tvs}

@@ -1,6 +1,7 @@
 import {
   PANEL_PITCH, PANEL_PRINT_W, PANEL_PRINT_H, FASCIA_PRINT_H, FASCIA_PRINT_W_BAY,
   SQM_TO_SQFT, TV_SIZES, TV_DEFAULT_IDX, FOOTPRINT, TOTAL_H, WALL_T, AISLE_W,
+  ITEM_EXTENT,
 } from './constants';
 import type { Config, EdgeId, ItemType, Placement, StallId, Tv, WallId } from './types';
 
@@ -143,6 +144,32 @@ export function stallCamera(cfg: Config, stall: StallId, angle: StallAngle): Sta
   };
 }
 
+/** Camera for a close-up of one item: a three-quarter view of its own front. */
+export function itemCamera(cfg: Config, stall: StallId, p: Placement): StallShot {
+  const pose = stallPose(cfg, stall);
+  const [w, h, d] = ITEM_EXTENT[p.type] ?? [1, 1, 1];
+  const r = p.rotY;
+  // The item's own front, swung round a little for a three-quarter view.
+  const f: [number, number, number] = [Math.sin(r), 0, Math.cos(r)];
+  const side: [number, number, number] = [Math.cos(r), 0, -Math.sin(r)];
+  const dir: [number, number, number] = [
+    f[0] * 0.92 + side[0] * 0.34,
+    0.42,
+    f[2] * 0.92 + side[2] * 0.34,
+  ];
+  const toWorld = ([x, y, z]: [number, number, number]): [number, number, number] =>
+    pose.flip ? [pose.x - x, y, pose.z - z] : [pose.x + x, y, pose.z + z];
+  const rotOnly = ([x, y, z]: [number, number, number]): [number, number, number] =>
+    pose.flip ? [-x, y, -z] : [x, y, z];
+
+  return {
+    dir: rotOnly(dir),
+    target: toWorld([p.x, Math.max(0.45, h * 0.5), p.z]),
+    subject: [Math.max(w, d) * 1.45, h * 1.3],
+    overhead: false,
+  };
+}
+
 /** Footprint of the whole arrangement in world coordinates. */
 export function arrangementBounds(cfg: Config) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -198,7 +225,8 @@ export function edgePoint(e: EdgeId, t: number, W: number, D: number) {
 export const ITEM_TYPES: ItemType[] = [
   'counter', 'table', 'cabinet', 'kiosk', 'steps',
   'glasscase', 'standeeGirl', 'standeeBoy', 'photobooth', 'modelcase',
-  'modelMentorship', 'modelAedp', 'bookwallU', 'bin',
+  'modelMentorship', 'modelAedp', 'bookwallU',
+  'mannequinGirl', 'mannequinBoy', 'figureGroup', 'bin',
 ];
 
 export const ITEM_LABEL: Record<ItemType, string> = {
@@ -215,6 +243,9 @@ export const ITEM_LABEL: Record<ItemType, string> = {
   modelMentorship: 'Model — Anna–Akka Mentorship',
   modelAedp: 'Model — Skilling Telangana AEDP',
   bookwallU: 'U-shaped book wall',
+  mannequinGirl: 'Mannequin — girls uniform',
+  mannequinBoy: 'Mannequin — boys uniform',
+  figureGroup: 'Instructor + students',
   bin: 'Dustbin',
 };
 
@@ -229,6 +260,7 @@ export function defaultCounts(area: number): Record<ItemType, number> & {
     // Stand features, switched on per stall rather than scaled by area.
     steps: 0, glasscase: 0, standeeGirl: 0, standeeBoy: 0,
     photobooth: 0, modelcase: 0, modelMentorship: 0, modelAedp: 0, bookwallU: 0,
+    mannequinGirl: 0, mannequinBoy: 0, figureGroup: 0,
     bin: 1,
     spotlights: Math.max(3, Math.ceil(area / 3)),
     tvs: area <= 12 ? 1 : area <= 20 ? 1 : area <= 28 ? 2 : 3,
@@ -278,6 +310,15 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
       };
     case 'glasscase':
       return { x: clampX(-wallSide * (W / 2 - 0.6 - i * 1.1)), z: clampZ(-D / 2 + 0.35), rotY: 0 };
+    case 'mannequinGirl':
+    case 'mannequinBoy':
+      return {
+        x: clampX((type === 'mannequinGirl' ? -1 : 1) * (W / 2 - 0.4)),
+        z: clampZ(D / 2 - 0.3),
+        rotY: (type === 'mannequinGirl' ? 1 : -1) * 0.2,
+      };
+    case 'figureGroup':
+      return { x: clampX(wallSide * (W * 0.25)), z: clampZ(-D / 2 + 0.55), rotY: 0 };
     case 'standeeGirl':
     case 'standeeBoy':
       return {

@@ -65,6 +65,9 @@ export const FOOTPRINT: Record<string, number> = {
   photobooth: 2.2 * 1.2, modelcase: 1.219 * 0.610 + 1.2,
   modelMentorship: 1.8 * 0.9 + 1.4, modelAedp: 1.8 * 0.9 + 1.4,
   bookwallU: 2.9 * 0.45 + 1.4,
+  mannequinGirl: 0.3, mannequinBoy: 0.3,
+  // People are not fixtures: they stand in circulation, they do not consume it.
+  figureGroup: 0.2,
 };
 
 // --- Project display steps -------------------------------------------------
@@ -122,6 +125,34 @@ export const MODEL_TITLES = {
   mentorship: 'ANNA–AKKA MENTORSHIP',
   mentorshipSub: 'TRAIN THE TRAINERS → EMPOWER THE FACULTY → EQUIP THE INTERNS',
   aedp: 'SKILLING TELANGANA: APPRENTICESHIP-EMBEDDED DEGREE PROGRAMMES',
+};
+
+/** Uniform display mannequin on a disc base. */
+export const MANNEQUIN = { h: 1.62, base: 0.2 };
+
+/**
+ * Rough bounding size of each item, width x height x depth. Only used to
+ * frame a close-up, so approximate is fine -- it decides how far back the
+ * camera stands, not how anything is built.
+ */
+export const ITEM_EXTENT: Record<string, [number, number, number]> = {
+  counter: [1.0, 1.0, 0.5],
+  table: [1.72, 1.1, 1.72],
+  cabinet: [0.9, 1.0, 0.45],
+  kiosk: [0.55, 1.9, 0.55],
+  bin: [0.3, 0.6, 0.3],
+  steps: [1.22, 2.0, 1.83],
+  glasscase: [0.9, 1.75, 0.45],
+  standeeGirl: [0.6, 1.55, 0.3],
+  standeeBoy: [0.6, 1.55, 0.3],
+  photobooth: [1.26, 2.21, 0.5],
+  modelcase: [1.22, 1.45, 0.61],
+  modelMentorship: [1.8, 1.55, 0.9],
+  modelAedp: [1.8, 1.2, 0.9],
+  bookwallU: [2.9, 2.1, 0.45],
+  mannequinGirl: [0.5, 1.62, 0.5],
+  mannequinBoy: [0.5, 1.62, 0.5],
+  figureGroup: [1.5, 1.75, 1.0],
 };
 
 export const SIZES = [3, 4, 5, 6] as const;
