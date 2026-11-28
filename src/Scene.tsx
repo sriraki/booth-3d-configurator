@@ -5,7 +5,7 @@ import {
   PANEL_LEAF, PANEL_ZONE_H, POST_W, TOTAL_H, FASCIA_H, FASCIA_PRINT_H, WALL_T,
   COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_DEPTH, tvCentreH,
   AISLE_W, STEP, STEP_HEIGHTS, STEP_LABEL_H, STEP_TOPICS,
-  GCASE, STANDEE, PHOTO, MCASE, MCASE_TITLE, DTABLE, MODEL_TITLES,
+  GCASE, STANDEE, PHOTO, MCASE, MCASE_TITLE, DTABLE, MODEL_TITLES, BWALL,
 } from './constants';
 import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, edgePoint,
@@ -19,6 +19,7 @@ import {
   makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture,
   makeTileTexture, makeStepLabelTexture, makeStandeeTexture, makePhotoBackdrop,
   makePlinthTexture, makeBandTexture, makeMentorshipHeader, makeTierTexture,
+  makeFloralFrame,
 } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -841,40 +842,169 @@ function Standee({ tex }: { tex: THREE.Texture }) {
   );
 }
 
-/** Photo booth: printed backdrop in a lit frame, with a floor decal. */
-function PhotoBooth({ id, fallback, ctx }: {
-  id: SurfaceId; fallback: THREE.Texture; ctx: SurfaceCtx;
-}) {
-  const { w, h, d, printW, printH } = PHOTO;
+/**
+ * Photo frame cutout at the exit: a board with a decorated border and a real
+ * opening, on two feet, that visitors stand behind for a photo. It is a prop
+ * in the floor plan, not a wall treatment -- hence the open back and the
+ * timber battens holding it up.
+ */
+function PhotoFrame({ tex }: { tex: THREE.Texture }) {
+  const { w, h, d, bottom } = PHOTO;
+  const cy = bottom + h / 2;
   return (
     <group>
-      {/* backdrop carcass */}
-      <mesh position={[0, h / 2, -d / 2]} castShadow receiveShadow>
-        <boxGeometry args={[w, h, d]} />
-        <meshStandardMaterial color="#eceae6" roughness={0.8} />
-      </mesh>
-      {/* the printed face, a drop target like any other graphic */}
-      <group position={[0, h / 2, 0.004]}>
-        <Surface id={id} w={printW} h={printH} ctx={ctx} fallback={fallback} frameMm={30} />
-      </group>
-      {/* lit returns either side */}
+      {/* timber legs holding the frame at standing height */}
       {[-1, 1].map((e) => (
-        <group key={e} position={[e * (w / 2 + 0.06), 0, 0.12]}>
-          <mesh position={[0, h / 2, 0]} castShadow>
-            <boxGeometry args={[0.12, h, 0.34]} />
-            <meshStandardMaterial color="#f2f0ec" roughness={0.7} />
+        <group key={e} position={[e * (w / 2 - 0.09), 0, 0]}>
+          <mesh position={[0, 0.025, 0.04]} castShadow>
+            <boxGeometry args={[0.14, 0.05, 0.38]} />
+            <meshStandardMaterial color="#a8朗8a5f" roughness={0.85} />
           </mesh>
-          <mesh position={[e * 0.062, h / 2, 0.172]} rotation={[0, e * Math.PI / 2, 0]}>
-            <planeGeometry args={[0.04, h - 0.2]} />
-            <meshBasicMaterial color="#ffdfae" toneMapped={false} />
+          <mesh position={[0, (bottom + 0.1) / 2, 0]} castShadow>
+            <boxGeometry args={[0.05, bottom + 0.1, 0.045]} />
+            <meshStandardMaterial color="#a8865f" roughness={0.85} />
           </mesh>
-          <pointLight position={[0, 1.7, 0.3]} intensity={5} distance={3} color="#ffe6c2" />
         </group>
       ))}
+      {/* The cut board. alphaTest is what makes the centre an opening rather
+          than a white rectangle with flowers drawn round it. */}
+      <mesh position={[0, cy, 0]} castShadow>
+        <planeGeometry args={[w, h]} />
+        <meshStandardMaterial map={tex} transparent alphaTest={0.5}
+          side={THREE.DoubleSide} roughness={0.9} />
+      </mesh>
+      <mesh position={[0, cy, -d]}>
+        <planeGeometry args={[w, h]} />
+        <meshStandardMaterial map={tex} transparent alphaTest={0.5}
+          color="#e4e0d8" side={THREE.DoubleSide} roughness={0.95} />
+      </mesh>
       {/* where to stand */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0.85]}>
-        <ringGeometry args={[0.42, 0.5, 40]} />
-        <meshBasicMaterial color="#d9b26a" toneMapped={false} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, -0.5]}>
+        <ringGeometry args={[0.3, 0.36, 36]} />
+        <meshBasicMaterial color="#c0398f" toneMapped={false} />
+      </mesh>
+      <pointLight position={[0, cy + 0.4, 0.6]} intensity={4} distance={2.6}
+        color="#fff0d8" />
+    </group>
+  );
+}
+
+/**
+ * U-shaped book wall: two full-height glazed columns of shelves with a bridge
+ * across the top and an open centre, so a wall-mounted screen sits recessed in
+ * the niche. Modelled on the client's reference unit -- dark frame, light
+ * shelves, glazed doors.
+ */
+function BookWallU() {
+  const { w, d, h, col, nicheBottom, nicheTop, shelves } = BWALL;
+  const FRAME = { color: '#3a2b23', roughness: 0.68, metalness: 0.05 };
+  const nicheW = w - col * 2;
+  const spine = ['#8d2f2f', '#1f4d7a', '#2f6b45', '#8a6a2a', '#4a3570', '#a04a1e'];
+
+  const column = (sx: number) => (
+    <group position={[sx * (w / 2 - col / 2), 0, 0]}>
+      <mesh position={[0, h / 2, -d / 2 + 0.01]} receiveShadow>
+        <boxGeometry args={[col, h, 0.02]} />
+        <meshStandardMaterial color="#efe9e2" roughness={0.85} />
+      </mesh>
+      {/* carcass */}
+      {[[-1, 0], [1, 0]].map(([e]) => (
+        <mesh key={e} position={[(e * (col - 0.05)) / 2, h / 2, 0]} castShadow>
+          <boxGeometry args={[0.05, h, d]} />
+          <meshStandardMaterial {...FRAME} />
+        </mesh>
+      ))}
+      <mesh position={[0, h - 0.03, 0]} castShadow>
+        <boxGeometry args={[col, 0.06, d]} />
+        <meshStandardMaterial {...FRAME} />
+      </mesh>
+      <mesh position={[0, 0.03, 0]} castShadow>
+        <boxGeometry args={[col, 0.06, d]} />
+        <meshStandardMaterial {...FRAME} />
+      </mesh>
+      {Array.from({ length: shelves }, (_, i) => {
+        const y = 0.12 + ((i + 1) * (h - 0.24)) / (shelves + 1);
+        return (
+          <group key={i}>
+            <mesh position={[0, y, 0]} castShadow>
+              <boxGeometry args={[col - 0.08, 0.022, d - 0.04]} />
+              <meshStandardMaterial color="#f4f2ee" roughness={0.7} />
+            </mesh>
+            {Array.from({ length: 6 }, (__, b) => {
+              const bh = 0.17 + ((b * 5) % 4) * 0.015;
+              return (
+                <mesh key={b} position={[-col / 2 + 0.1 + b * 0.072, y + bh / 2 + 0.012, 0]}
+                  rotation={[0, 0, b === 5 ? 0.3 : 0]} castShadow>
+                  <boxGeometry args={[0.04, bh, d - 0.16]} />
+                  <meshStandardMaterial color={spine[(b + i) % spine.length]} roughness={0.8} />
+                </mesh>
+              );
+            })}
+          </group>
+        );
+      })}
+      {/* glazed door */}
+      <mesh position={[0, h / 2, d / 2 - 0.01]}>
+        <boxGeometry args={[col - 0.1, h - 0.14, 0.012]} />
+        <meshStandardMaterial {...GLASS} />
+      </mesh>
+      <mesh position={[col * 0.3, h * 0.5, d / 2 + 0.012]}>
+        <boxGeometry args={[0.018, 0.26, 0.018]} />
+        <meshStandardMaterial color="#c8ccd0" metalness={0.8} roughness={0.3} />
+      </mesh>
+      <pointLight position={[0, h * 0.72, d / 2 - 0.1]} intensity={2.2}
+        distance={1.8} color="#fff0d2" />
+    </group>
+  );
+
+  return (
+    <group>
+      {column(-1)}
+      {column(1)}
+
+      {/* bridge over the niche: a glazed display box */}
+      <group position={[0, (nicheTop + h) / 2, 0]}>
+        <mesh position={[0, 0, -d / 2 + 0.01]} receiveShadow>
+          <boxGeometry args={[nicheW, h - nicheTop, 0.02]} />
+          <meshStandardMaterial color="#efe9e2" roughness={0.85} />
+        </mesh>
+        <mesh position={[0, (h - nicheTop) / 2 - 0.03, 0]} castShadow>
+          <boxGeometry args={[nicheW, 0.06, d]} />
+          <meshStandardMaterial {...FRAME} />
+        </mesh>
+        <mesh position={[0, -(h - nicheTop) / 2 + 0.04, 0]} castShadow>
+          <boxGeometry args={[nicheW, 0.08, d]} />
+          <meshStandardMaterial {...FRAME} />
+        </mesh>
+        <mesh position={[0, 0, d / 2 - 0.012]}>
+          <boxGeometry args={[nicheW - 0.04, h - nicheTop - 0.14, 0.012]} />
+          <meshStandardMaterial {...GLASS} />
+        </mesh>
+        {/* a few display pieces behind the glass */}
+        {[-0.5, -0.1, 0.35, 0.7].map((x, i) => (
+          <mesh key={x} position={[x, -(h - nicheTop) / 2 + 0.12, 0]} castShadow>
+            <boxGeometry args={[0.1, 0.14 + (i % 2) * 0.05, 0.1]} />
+            <meshStandardMaterial color={['#c8a24a', '#9ab5c8', '#c08a6a', '#8fae92'][i]}
+              roughness={0.6} metalness={0.2} />
+          </mesh>
+        ))}
+        <pointLight position={[0, 0, d / 2 - 0.08]} intensity={2.4} distance={2}
+          color="#fff0d2" />
+      </group>
+
+      {/* niche: open back so a wall-mounted screen shows through, recessed */}
+      <mesh position={[0, nicheBottom / 2, -d / 2 + 0.01]} receiveShadow>
+        <boxGeometry args={[nicheW, nicheBottom, 0.02]} />
+        <meshStandardMaterial color="#efe9e2" roughness={0.85} />
+      </mesh>
+      <mesh position={[0, nicheBottom - 0.03, 0]} castShadow receiveShadow>
+        <boxGeometry args={[nicheW, 0.06, d]} />
+        <meshStandardMaterial {...FRAME} />
+      </mesh>
+      {/* plinth */}
+      <mesh position={[0, 0.05, 0]} castShadow>
+        <boxGeometry args={[w, 0.1, d]} />
+        <meshStandardMaterial {...FRAME} />
       </mesh>
     </group>
   );
@@ -1674,7 +1804,8 @@ function Stall({
   const stepLabels = useMemo(() => STEP_TOPICS.map(makeStepLabelTexture), []);
   const standeeTex = useMemo(
     () => ({ girl: makeStandeeTexture('girl'), boy: makeStandeeTexture('boy') }), []);
-  const backdropTex = useMemo(() => makePhotoBackdrop(name), [name]);
+  const frameTex = useMemo(
+    () => makeFloralFrame(PHOTO.w, PHOTO.h, PHOTO.openW, PHOTO.openH), []);
   const plinthTex = useMemo(() => makePlinthTexture(MCASE_TITLE), []);
   const modelTex = useMemo(() => ({
     tableA: makeBandTexture(MODEL_TITLES.mentorship, '#11224a', '#ffc425', 1.5, 0.13),
@@ -1733,9 +1864,8 @@ function Stall({
           {p.type === 'glasscase' && <GlassCase />}
           {p.type === 'standeeGirl' && <Standee tex={standeeTex.girl} />}
           {p.type === 'standeeBoy' && <Standee tex={standeeTex.boy} />}
-          {p.type === 'photobooth' && (
-            <PhotoBooth id={`photo:${p.id}`} fallback={backdropTex} ctx={ctx} />
-          )}
+          {p.type === 'photobooth' && <PhotoFrame tex={frameTex} />}
+          {p.type === 'bookwallU' && <BookWallU />}
           {p.type === 'modelcase' && <ModelCase caption={plinthTex} />}
           {p.type === 'modelMentorship' && (
             <group>

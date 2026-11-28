@@ -64,6 +64,7 @@ export const FOOTPRINT: Record<string, number> = {
   glasscase: 0.9 * 0.45 + 0.4, standeeGirl: 0.3, standeeBoy: 0.3,
   photobooth: 2.2 * 1.2, modelcase: 1.219 * 0.610 + 1.2,
   modelMentorship: 1.8 * 0.9 + 1.4, modelAedp: 1.8 * 0.9 + 1.4,
+  bookwallU: 2.9 * 0.45 + 1.4,
 };
 
 // --- Project display steps -------------------------------------------------
@@ -88,8 +89,27 @@ export const GCASE = { w: 0.9, d: 0.45, plinth: 0.25, glass: 1.5, shelves: 3 };
 /** 2D cutout standee on a weighted foot. */
 export const STANDEE = { w: 0.6, h: 1.55 };
 
-/** Photo booth: a printed backdrop with a lit frame and a floor decal. */
-export const PHOTO = { w: 2.2, h: 2.2, d: 0.12, printW: 2.1, printH: 2.0 };
+/**
+ * Photo frame cutout: a foam-board / timber frame people stand behind, with
+ * a decorated border and an open centre. Sits at the exit, not on a wall.
+ */
+export const PHOTO = {
+  w: 1.26, h: 1.72, d: 0.05,
+  openW: 0.78, openH: 1.24,
+  bottom: 0.49,            // the board is held clear of the floor on legs
+};
+
+/**
+ * U-shaped book wall: two full-height glazed columns, a bridge over the top
+ * and an open centre niche for the screen. Sized to a 3 m stall wall.
+ */
+export const BWALL = {
+  w: 2.9, d: 0.45, h: 2.1,
+  col: 0.62,            // width of each side column
+  nicheBottom: 0.85,
+  nicheTop: 2.0,
+  shelves: 4,
+};
 
 /** The scale model, under a 4 ft x 2 ft vitrine on a captioned plinth. */
 export const MCASE = { w: 1.219, d: 0.610, plinth: 0.85, glass: 0.58 };

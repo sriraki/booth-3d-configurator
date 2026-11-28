@@ -425,3 +425,90 @@ export function makeTierTexture(text: string, bg: string, fg = '#ffffff') {
     ctx.fillText(text, w / 2, h / 2);
   });
 }
+
+/**
+ * Floral photo frame, drawn on a transparent canvas so the centre is a real
+ * opening: the mesh uses alphaTest, and people stand in the hole. Scattered
+ * blooms deliberately overrun the board edge, as a cut foam frame does.
+ */
+export function makeFloralFrame(wM: number, hM: number, openW: number, openH: number) {
+  const tex = canvasTexture(wM, hM, (ctx, w, h) => {
+    ctx.clearRect(0, 0, w, h);
+    const ow = (openW / wM) * w, oh = (openH / hM) * h;
+    const ox = (w - ow) / 2, oy = (h - oh) / 2;
+
+    // the board itself: a white frame with the centre knocked out
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.clearRect(ox, oy, ow, oh);
+    ctx.strokeStyle = '#d8d4cc';
+    ctx.lineWidth = Math.max(1, w * 0.004);
+    ctx.strokeRect(ox, oy, ow, oh);
+
+    const PAL = ['#7b3fd1', '#9b59d0', '#c0398f', '#e05a9a', '#f0a0c0',
+      '#e8721c', '#f0b400', '#17a398', '#2f7d3f', '#5bbf6a'];
+    const LEAF = ['#2f7d3f', '#3f9d52', '#17a398', '#6fbf73', '#8dc63f'];
+
+    const leaf = (x: number, y: number, r: number, a: number, c: string) => {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r, r * 0.42, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+    const bloom = (x: number, y: number, r: number, c: string, mid: string, n: number) => {
+      ctx.save(); ctx.translate(x, y);
+      ctx.fillStyle = c;
+      for (let i = 0; i < n; i++) {
+        ctx.save();
+        ctx.rotate((i / n) * Math.PI * 2);
+        ctx.beginPath();
+        ctx.ellipse(0, -r * 0.62, r * 0.34, r * 0.62, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.fillStyle = mid;
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    };
+
+    // Deterministic scatter: the same frame every render, no flicker.
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+
+    // Walk the opening's perimeter and plant along it, straying outward.
+    const pts: [number, number][] = [];
+    const steps = 44;
+    for (let i = 0; i < steps; i++) {
+      const t = i / steps;
+      const peri = 2 * (ow + oh);
+      let d = t * peri;
+      let x: number, y: number, nx: number, ny: number;
+      if (d < ow) { x = ox + d; y = oy; nx = 0; ny = -1; }
+      else if ((d -= ow) < oh) { x = ox + ow; y = oy + d; nx = 1; ny = 0; }
+      else if ((d -= oh) < ow) { x = ox + ow - d; y = oy + oh; nx = 0; ny = 1; }
+      else { d -= ow; x = ox; y = oy + oh - d; nx = -1; ny = 0; }
+      const off = (0.35 + rnd() * 0.75) * Math.min(w, h) * 0.07;
+      pts.push([x + nx * off, y + ny * off]);
+    }
+    for (const [x, y] of pts) {
+      if (rnd() < 0.45) {
+        leaf(x, y, Math.min(w, h) * (0.03 + rnd() * 0.035), rnd() * Math.PI,
+          LEAF[Math.floor(rnd() * LEAF.length)]);
+      } else {
+        const r = Math.min(w, h) * (0.028 + rnd() * 0.042);
+        const c = PAL[Math.floor(rnd() * PAL.length)];
+        const mid = ['#f0b400', '#f0a0c0', '#ffffff'][Math.floor(rnd() * 3)];
+        bloom(x, y, r, c, mid, 5 + Math.floor(rnd() * 4));
+      }
+      // a few dots, as the reference has
+      ctx.fillStyle = PAL[Math.floor(rnd() * PAL.length)];
+      ctx.beginPath();
+      ctx.arc(x + (rnd() - 0.5) * w * 0.1, y + (rnd() - 0.5) * h * 0.05,
+        Math.min(w, h) * 0.007, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+  return tex;
+}

@@ -21,7 +21,7 @@ import * as store from './storage';
  *  sides, the furniture kit, seating. A session saved against an older design
  *  would otherwise pin defaults the design has since moved on from, so it
  *  starts from the new one. Artwork and screen media are kept either way. */
-const CFG_REV = 10;
+const CFG_REV = 12;
 
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
@@ -58,20 +58,21 @@ const INITIAL: Config = {
       ],
     },
     c: {
-      tvs: 1, tvSizeIdx: LED_8X6_IDX,
+      // A 55 inch set, centred on the 3 m wall so it sits in the book wall's
+      // niche. The wall-mounted screen shows THROUGH the open-backed niche,
+      // which is what puts it in the recess rather than in front of it.
+      tvs: 1, tvSizeIdx: TV_DEFAULT_IDX,
       layout: [
+        { type: 'bookwallU', x: 2.775, z: 0, rotY: -Math.PI / 2 },
         { type: 'modelcase', x: 0, z: 0 },                    // centre of the stall
         { type: 'counter', x: -2.30, z: 0.55, rotY: 0.45 },   // helpdesk, open corner
-        { type: 'table', x: 1.60, z: 0 },
-        // Back wall: photo booth on the left, the two book cases on the right.
-        { type: 'photobooth', x: -1.78, z: -1.28 },
-        { type: 'glasscase', x: 0.30, z: -1.20 },
-        { type: 'glasscase', x: 1.40, z: -1.20 },
-        // Standees take the two frontage corners. Anywhere nearer the middle
-        // and they stand on the sight line from the aisle to the vitrine.
-        { type: 'standeeGirl', x: -2.70, z: 1.20 },
-        { type: 'standeeBoy', x: 2.55, z: 1.20 },
-        { type: 'bin', x: 2.80, z: -0.90 },
+        { type: 'table', x: 1.55, z: -0.15 },
+        // The photo frame stands at the exit, turned to the aisle.
+        { type: 'photobooth', x: -1.00, z: 1.15, rotY: 0.4 },
+        // Standees flank the way out, clear of the sight line to the vitrine.
+        { type: 'standeeGirl', x: -2.60, z: 1.20 },
+        { type: 'standeeBoy', x: 1.90, z: 1.20 },
+        { type: 'bin', x: 2.30, z: -1.25 },
       ],
     },
   },

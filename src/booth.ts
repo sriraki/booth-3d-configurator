@@ -198,7 +198,7 @@ export function edgePoint(e: EdgeId, t: number, W: number, D: number) {
 export const ITEM_TYPES: ItemType[] = [
   'counter', 'table', 'cabinet', 'kiosk', 'steps',
   'glasscase', 'standeeGirl', 'standeeBoy', 'photobooth', 'modelcase',
-  'modelMentorship', 'modelAedp', 'bin',
+  'modelMentorship', 'modelAedp', 'bookwallU', 'bin',
 ];
 
 export const ITEM_LABEL: Record<ItemType, string> = {
@@ -214,6 +214,7 @@ export const ITEM_LABEL: Record<ItemType, string> = {
   modelcase: 'Model display vitrine',
   modelMentorship: 'Model — Anna–Akka Mentorship',
   modelAedp: 'Model — Skilling Telangana AEDP',
+  bookwallU: 'U-shaped book wall',
   bin: 'Dustbin',
 };
 
@@ -227,7 +228,7 @@ export function defaultCounts(area: number): Record<ItemType, number> & {
     kiosk: area <= 12 ? 0 : area <= 28 ? 1 : 2,
     // Stand features, switched on per stall rather than scaled by area.
     steps: 0, glasscase: 0, standeeGirl: 0, standeeBoy: 0,
-    photobooth: 0, modelcase: 0, modelMentorship: 0, modelAedp: 0,
+    photobooth: 0, modelcase: 0, modelMentorship: 0, modelAedp: 0, bookwallU: 0,
     bin: 1,
     spotlights: Math.max(3, Math.ceil(area / 3)),
     tvs: area <= 12 ? 1 : area <= 20 ? 1 : area <= 28 ? 2 : 3,
@@ -285,7 +286,19 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
         rotY: 0,
       };
     case 'photobooth':
-      return { x: clampX(wallSide * (W / 2 - 1.3 - i * 2.4)), z: clampZ(-D / 2 + 0.25), rotY: 0 };
+      // At the exit: just inside the open frontage, turned to face the aisle.
+      return {
+        x: clampX(-wallSide * (W * 0.18 + i * 1.6)),
+        z: clampZ(D / 2 - 0.4),
+        rotY: -wallSide * 0.45,
+      };
+    case 'bookwallU':
+      // Against the stall's short wall, facing in.
+      return {
+        x: clampX(wallSide * (W / 2 - 0.23)),
+        z: clampZ(0),
+        rotY: wallSide * (Math.PI / 2),
+      };
     case 'modelcase':
       return { x: clampX(i * 1.5), z: clampZ(0), rotY: 0 };
     case 'modelMentorship':
