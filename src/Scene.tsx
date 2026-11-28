@@ -19,7 +19,7 @@ import {
   makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture,
   makeTileTexture, makeStepLabelTexture, makeStandeeTexture, makePhotoBackdrop,
   makePlinthTexture, makeBandTexture, makeMentorshipHeader, makeTierTexture,
-  makeFloralFrame, makePanelTitle,
+  makeFloralFrame, makePanelTitle, makeCccRiser,
 } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -1015,14 +1015,128 @@ function BookWallU() {
 }
 
 /** The scale model under a 4 ft x 2 ft vitrine, on a captioned plinth. */
-function ModelCase({ caption }: { caption: THREE.Texture }) {
-  const { w, d, plinth, glass } = MCASE;
-  const build = (x: number, z: number, bw: number, bd: number, bh: number, c: string) => (
-    <mesh position={[x, plinth + bh / 2 + 0.01, z]} castShadow>
-      <boxGeometry args={[bw, bh, bd]} />
-      <meshStandardMaterial color={c} roughness={0.75} />
+// --- "From Classroom to Career" -------------------------------------------
+// The client's production-cum-training-centre model: a lit loop road with
+// seven stations round it, a titled riser at the back and a centre plinth.
+// Built to sit inside the 4 ft x 2 ft vitrine, so everything is at 1:20-ish.
+
+const CCC = {
+  navy: '#1b2a4a', cream: '#f0e6cf', gold: '#d8a93c',
+  slate: '#8fa3b8', sage: '#a8bfae', amber: '#e8a33d',
+};
+
+const CCC_STATIONS: {
+  k: string; t: string; c: string; x: number; z: number; w: number; d: number;
+}[] = [
+  { k: 'partner',  t: 'INDUSTRY & COLLEGE PARTNERSHIP', c: CCC.navy,  x: -0.45, z: 0.00, w: 0.20, d: 0.15 },
+  { k: 'skill',    t: 'SKILL TRAINING',                 c: CCC.slate, x: -0.23, z: -0.17, w: 0.20, d: 0.13 },
+  { k: 'raw',      t: 'RAW MATERIAL SUPPLY',            c: CCC.navy,  x: 0.02,  z: -0.19, w: 0.20, d: 0.12 },
+  { k: 'prod',     t: 'PRODUCTION & PACKAGING',         c: CCC.sage,  x: 0.27,  z: -0.16, w: 0.21, d: 0.13 },
+  { k: 'market',   t: 'MARKET & SALES',                 c: CCC.amber, x: 0.47,  z: 0.02, w: 0.19, d: 0.14 },
+  { k: 'profit',   t: 'PROFIT SHARING',                 c: CCC.slate, x: 0.26,  z: 0.20, w: 0.21, d: 0.13 },
+  { k: 'reinvest', t: 'REINVESTMENT',                   c: CCC.cream, x: -0.12, z: 0.21, w: 0.20, d: 0.13 },
+];
+
+/** The little scene that sits on one station platform. */
+function CccScene({ kind }: { kind: string }) {
+  const box = (x: number, y: number, z: number, w: number, h: number, d: number, c: string) => (
+    <mesh position={[x, y + h / 2, z]} castShadow>
+      <boxGeometry args={[w, h, d]} />
+      <meshStandardMaterial color={c} roughness={0.8} />
     </mesh>
   );
+  const coins = (x: number, z: number, n: number) => (
+    <group position={[x, 0, z]}>
+      {Array.from({ length: n }, (_, i) => (
+        <mesh key={i} position={[0, 0.004 + i * 0.006, 0]} castShadow>
+          <cylinderGeometry args={[0.013, 0.013, 0.006, 16]} />
+          <meshStandardMaterial color="#e0b64a" metalness={0.55} roughness={0.35} />
+        </mesh>
+      ))}
+    </group>
+  );
+  const PEOPLE = ['#2f4f7f', '#b05a3c', '#3f7a55', '#6a4a8f'];
+
+  if (kind === 'partner') return (
+    <group>
+      {box(-0.045, 0, -0.03, 0.09, 0.05, 0.06, '#c9d2dc')}
+      {box(0.045, 0, -0.035, 0.07, 0.065, 0.05, '#9fb0c2')}
+      {box(0.0, 0, 0.03, 0.06, 0.012, 0.035, '#c8a87a')}
+      <group position={[-0.02, 0, 0.035]}><Figures n={2} w={0.05} d={0.01} colors={PEOPLE} /></group>
+      <group position={[0.03, 0, 0.04]}><Figures n={1} w={0.01} d={0.01} colors={PEOPLE} /></group>
+    </group>
+  );
+  if (kind === 'skill') return (
+    <group>
+      {box(0, 0, -0.04, 0.17, 0.07, 0.04, '#e6e2d6')}
+      {box(0, 0.035, -0.018, 0.07, 0.03, 0.004, '#2f4f3f')}
+      {box(-0.03, 0, 0.02, 0.05, 0.012, 0.022, '#c8a87a')}
+      {box(0.04, 0, 0.02, 0.05, 0.012, 0.022, '#c8a87a')}
+      <group position={[0, 0, 0.035]}><Figures n={4} w={0.14} d={0.01} colors={PEOPLE} /></group>
+    </group>
+  );
+  if (kind === 'raw') return (
+    <group>
+      {box(-0.055, 0, -0.01, 0.075, 0.05, 0.05, '#cbb08a')}
+      {box(0.0, 0, -0.01, 0.045, 0.035, 0.04, '#c8a87a')}
+      {box(0.05, 0, -0.012, 0.035, 0.028, 0.035, '#bb9a72')}
+      {box(0.02, 0, 0.035, 0.08, 0.008, 0.03, '#a8865f')}
+      <group position={[0.0, 0, 0.04]}><Figures n={3} w={0.1} d={0.01} colors={PEOPLE} /></group>
+    </group>
+  );
+  if (kind === 'prod') return (
+    <group>
+      {[-0.06, 0, 0.06].map((x, i) => (
+        <group key={x}>
+          {box(x, 0, -0.01, 0.045, 0.035, 0.035, i === 1 ? '#dfe6e0' : '#cdd8cf')}
+          {box(x, 0.035, -0.01, 0.038, 0.012, 0.03, '#5d6f63')}
+        </group>
+      ))}
+      <group position={[0, 0, 0.035]}><Figures n={3} w={0.13} d={0.01} colors={PEOPLE} /></group>
+    </group>
+  );
+  if (kind === 'market') return (
+    <group>
+      {box(0.02, 0, -0.04, 0.1, 0.06, 0.04, '#efe7d8')}
+      <mesh position={[0.02, 0.055, -0.016]} rotation={[-0.5, 0, 0]} castShadow>
+        <boxGeometry args={[0.1, 0.002, 0.03]} />
+        <meshStandardMaterial color="#c0392b" roughness={0.8} />
+      </mesh>
+      {box(-0.06, 0, -0.01, 0.05, 0.035, 0.03, '#8fb6d8')}
+      <group position={[0.03, 0, 0.04]}><Figures n={3} w={0.08} d={0.01} colors={PEOPLE} /></group>
+    </group>
+  );
+  if (kind === 'profit') return (
+    <group>
+      {coins(-0.055, 0.0, 3)}{coins(0.0, 0.0, 6)}{coins(0.055, 0.0, 4)}
+      <mesh position={[0, 0.001, 0.045]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.18, 0.025]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.6} />
+      </mesh>
+    </group>
+  );
+  // reinvest
+  return (
+    <group>
+      {box(0.01, 0, -0.03, 0.11, 0.06, 0.05, '#e9e0cc')}
+      <mesh position={[0.01, 0.075, -0.03]} castShadow>
+        <boxGeometry args={[0.12, 0.012, 0.055]} />
+        <meshStandardMaterial color="#c8a87a" roughness={0.8} />
+      </mesh>
+      {coins(-0.045, 0.03, 2)}{coins(-0.02, 0.045, 3)}
+    </group>
+  );
+}
+
+function ModelCase({ caption, riser, signs }: {
+  caption: THREE.Texture; riser: THREE.Texture; signs: THREE.Texture[];
+}) {
+  const { w, d, plinth, glass } = MCASE;
+  // Top of the model's own deck. The deck slab spans plinth+0.011..+0.015,
+  // so anything laid on it has to start above that or it is buried in it.
+  const y = plinth + 0.016;
+  const RX = 0.33, RZ = 0.165;              // the loop road's radii
+
   return (
     <group>
       <mesh position={[0, plinth / 2, 0]} castShadow receiveShadow>
@@ -1041,51 +1155,86 @@ function ModelCase({ caption }: { caption: THREE.Texture }) {
         </mesh>
       ))}
 
-      {/* the diorama: school, pathway, campus, workplace */}
-      <mesh position={[0, plinth + 0.008, 0]} receiveShadow>
-        <boxGeometry args={[w - 0.05, 0.016, d - 0.05]} />
-        <meshStandardMaterial color="#cfd6cb" roughness={0.95} />
+      {/* the model's own base board, navy edge under a white deck */}
+      <mesh position={[0, plinth + 0.006, 0]} castShadow receiveShadow>
+        <boxGeometry args={[w - 0.04, 0.012, d - 0.04]} />
+        <meshStandardMaterial color={CCC.navy} roughness={0.65} />
       </mesh>
-      {/* the pathway running the length of it */}
-      <mesh position={[0, plinth + 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[w - 0.12, 0.075]} />
-        <meshStandardMaterial color="#d9b26a" roughness={0.6} />
+      <mesh position={[0, plinth + 0.013, 0]} receiveShadow>
+        <boxGeometry args={[w - 0.06, 0.004, d - 0.06]} />
+        <meshStandardMaterial color="#fbfaf6" roughness={0.75} />
       </mesh>
-      {build(-0.42, -0.14, 0.2, 0.15, 0.13, '#e8e4dc')}
-      {build(-0.42, -0.14 + 0.0, 0.2, 0.15, 0.13, '#e8e4dc')}
-      {build(-0.14, -0.15, 0.17, 0.14, 0.18, '#dfe6ee')}
-      {build(0.16, -0.15, 0.19, 0.14, 0.23, '#cfd8e6')}
-      {build(0.45, -0.14, 0.21, 0.16, 0.3, '#b9c6d8')}
-      {/* graduation cap marking the turn from study to work */}
-      <group position={[0.02, plinth + 0.07, 0.13]}>
-        <mesh castShadow>
-          <cylinderGeometry args={[0.03, 0.035, 0.03, 14]} />
-          <meshStandardMaterial color="#15306d" roughness={0.6} />
-        </mesh>
-        <mesh position={[0, 0.022, 0]} rotation={[0.12, 0.5, 0]}>
-          <boxGeometry args={[0.1, 0.006, 0.1]} />
-          <meshStandardMaterial color="#15306d" roughness={0.6} />
-        </mesh>
-      </group>
-      {/* direction arrows along the path */}
-      {[-0.3, 0, 0.3].map((x) => (
-        <mesh key={x} position={[x, plinth + 0.026, 0]} rotation={[-Math.PI / 2, 0, -Math.PI / 2]}>
-          <coneGeometry args={[0.022, 0.05, 3]} />
-          <meshStandardMaterial color="#15306d" />
-        </mesh>
+
+      {/* titled riser at the back */}
+      <mesh position={[0, plinth + 0.105, -d / 2 + 0.035]} castShadow>
+        <boxGeometry args={[w - 0.06, 0.19, 0.008]} />
+        <meshStandardMaterial map={riser} roughness={0.6} />
+      </mesh>
+
+      {/* the lit loop road */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0.01, y + 0.001, 0.015]}
+        scale={[1, RZ / RX, 1]}>
+        <ringGeometry args={[RX - 0.035, RX, 72]} />
+        <meshStandardMaterial color={CCC.gold} roughness={0.5} metalness={0.15} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0.01, y + 0.0005, 0.015]}
+        scale={[1, RZ / RX, 1]}>
+        <ringGeometry args={[RX - 0.048, RX + 0.012, 72]} />
+        <meshBasicMaterial color="#ffd9a0" toneMapped={false} />
+      </mesh>
+      {/* direction arrows round the loop */}
+      {Array.from({ length: 10 }, (_, i) => {
+        const a = (i / 10) * Math.PI * 2;
+        const px = 0.01 + Math.cos(a) * (RX - 0.017);
+        const pz = 0.015 + Math.sin(a) * (RZ - 0.009);
+        return (
+          <mesh key={i} position={[px, y + 0.003, pz]}
+            rotation={[-Math.PI / 2, 0, -a + Math.PI / 2]}>
+            <coneGeometry args={[0.009, 0.018, 3]} />
+            <meshStandardMaterial color={CCC.navy} roughness={0.6} />
+          </mesh>
+        );
+      })}
+
+      {/* centre plinth inside the loop */}
+      <mesh position={[0.01, y + 0.013, 0.015]} castShadow>
+        <boxGeometry args={[0.26, 0.026, 0.085]} />
+        <meshStandardMaterial color={CCC.navy} roughness={0.6} />
+      </mesh>
+      <mesh position={[0.01, y + 0.015, 0.058]} rotation={[-0.45, 0, 0]}>
+        <planeGeometry args={[0.24, 0.05]} />
+        <meshStandardMaterial map={signs[7]} roughness={0.5} />
+      </mesh>
+
+      {/* the seven stations */}
+      {CCC_STATIONS.map((st, i) => (
+        <group key={st.k} position={[st.x, y, st.z]}>
+          <mesh position={[0, 0.007, 0]} castShadow receiveShadow>
+            <boxGeometry args={[st.w, 0.014, st.d]} />
+            <meshStandardMaterial color={st.c} roughness={0.75} />
+          </mesh>
+          <group position={[0, 0.014, 0]}>
+            <CccScene kind={st.k} />
+          </group>
+          {/* sign board on two posts */}
+          {[-1, 1].map((e) => (
+            <mesh key={e} position={[e * 0.06, 0.055, -st.d / 2 + 0.012]}>
+              <boxGeometry args={[0.004, 0.09, 0.004]} />
+              <meshStandardMaterial color="#b9a06a" roughness={0.6} />
+            </mesh>
+          ))}
+          <mesh position={[0, 0.1, -st.d / 2 + 0.012]} castShadow>
+            <boxGeometry args={[0.165, 0.035, 0.005]} />
+            <meshStandardMaterial map={signs[i]} roughness={0.5} />
+          </mesh>
+        </group>
       ))}
+
       <Vitrine w={w} d={d} h={glass} y={plinth} />
     </group>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Scale models on display tables. These are physical models standing on a
-// table in the stall, so they are built at model scale: what has to read from
-// across the booth is the massing, the colour blocking and the title bands.
-// ---------------------------------------------------------------------------
-
-/** The table a scale model stands on, with a caption on its front rail. */
 // ---------------------------------------------------------------------------
 // People: uniform mannequins on stands, and the visitors and staff that make
 // a stall read at human scale.
@@ -1992,6 +2141,14 @@ function Stall({
   const frameTex = useMemo(
     () => makeFloralFrame(PHOTO.w, PHOTO.h, PHOTO.openW, PHOTO.openH), []);
   const plinthTex = useMemo(() => makePlinthTexture(MCASE_TITLE), []);
+  const cccTex = useMemo(() => ({
+    riser: makeCccRiser(),
+    // One sign per station, then the centre plinth's own board last.
+    signs: [
+      ...CCC_STATIONS.map((st) => makeTierTexture(st.t, '#1b2a4a')),
+      makeTierTexture('FROM CLASSROOM TO CAREER', '#1b2a4a', '#d8a93c'),
+    ],
+  }), []);
   const modelTex = useMemo(() => ({
     tableA: makeBandTexture(MODEL_TITLES.mentorship, '#11224a', '#ffc425', 1.5, 0.13),
     tableB: makeBandTexture('SKILLING TELANGANA · AEDP', '#12463f', '#ffffff', 1.5, 0.13),
@@ -2054,7 +2211,9 @@ function Stall({
           {p.type === 'mannequinGirl' && <Mannequin girl />}
           {p.type === 'mannequinBoy' && <Mannequin girl={false} />}
           {p.type === 'figureGroup' && <FigureGroup />}
-          {p.type === 'modelcase' && <ModelCase caption={plinthTex} />}
+          {p.type === 'modelcase' && (
+            <ModelCase caption={plinthTex} riser={cccTex.riser} signs={cccTex.signs} />
+          )}
           {p.type === 'modelMentorship' && (
             <group>
               <DisplayTable caption={modelTex.tableA} />

@@ -543,3 +543,21 @@ export function makePanelTitle(title: string, bg = '#11224a', fg = '#ffc425') {
     ctx.restore();
   });
 }
+
+/** The riser board at the back of the classroom-to-career model. */
+export function makeCccRiser() {
+  return canvasTexture(1.16, 0.19, (ctx, w, h) => {
+    ctx.fillStyle = '#f2e9d4';
+    ctx.fillRect(0, 0, w, h);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1b2a4a';
+    let size = fitText(ctx, 'FROM CLASSROOM TO CAREER', w * 0.9, h * 0.42);
+    ctx.font = `800 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('FROM CLASSROOM TO CAREER', w / 2, h * 0.38);
+    ctx.fillStyle = '#c08f2a';
+    size = fitText(ctx, 'PRODUCTION CUM TRAINING CENTRE', w * 0.82, h * 0.24);
+    ctx.font = `700 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('PRODUCTION CUM TRAINING CENTRE', w / 2, h * 0.68);
+  });
+}
