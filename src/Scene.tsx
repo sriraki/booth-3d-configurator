@@ -5,7 +5,7 @@ import {
   PANEL_LEAF, PANEL_ZONE_H, POST_W, TOTAL_H, FASCIA_H, FASCIA_PRINT_H, WALL_T,
   COUNTER, KIOSK, CABINET, RTABLE, CHAIR, BIN, TV_SIZES, TV_DEPTH, tvCentreH,
   AISLE_W, STEP, STEP_HEIGHTS, STEP_LABEL_H, STEP_TOPICS,
-  GCASE, STANDEE, PHOTO, MCASE, MCASE_TITLE,
+  GCASE, STANDEE, PHOTO, MCASE, MCASE_TITLE, DTABLE, MODEL_TITLES,
 } from './constants';
 import {
   wallsFor, fasciaEdges, panelsOnWall, wallPoint, wallLength, edgeLength, edgePoint,
@@ -18,7 +18,7 @@ import {
 import {
   makeFasciaTexture, makeCounterTexture, makeKioskTexture, makeCarpetTexture,
   makeTileTexture, makeStepLabelTexture, makeStandeeTexture, makePhotoBackdrop,
-  makePlinthTexture,
+  makePlinthTexture, makeBandTexture, makeMentorshipHeader, makeTierTexture,
 } from './textures';
 
 const ALU = { color: '#c3c8cd', metalness: 0.85, roughness: 0.32 };
@@ -276,7 +276,8 @@ function Walkways({ cfg }: { cfg: Config }) {
 
 function Hall({ cfg, view }: { cfg: Config; view: string }) {
   const b = arrangementBounds(cfg);
-  const overhead = view !== 'top';   // the plan view looks through the ceiling
+  // Any overhead view looks through the ceiling, or it sees only the deck.
+  const overhead = view !== 'top' && view !== 'angle:plan';
   const tiles = useMemo(() => {
     const t = makeTileTexture();
     t.repeat.set(HALL_W / 2, HALL_W / 2);   // the canvas covers 2 x 2 m
@@ -944,6 +945,343 @@ function ModelCase({ caption }: { caption: THREE.Texture }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Scale models on display tables. These are physical models standing on a
+// table in the stall, so they are built at model scale: what has to read from
+// across the booth is the massing, the colour blocking and the title bands.
+// ---------------------------------------------------------------------------
+
+/** The table a scale model stands on, with a caption on its front rail. */
+function DisplayTable({ caption }: { caption: THREE.Texture }) {
+  const { w, d, h, top } = DTABLE;
+  return (
+    <group>
+      <mesh position={[0, h - top / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[w, top, d]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.42} metalness={0.04} />
+      </mesh>
+      <mesh position={[0, (h - top) / 2, 0]} castShadow>
+        <boxGeometry args={[w - 0.12, h - top, d - 0.12]} />
+        <meshStandardMaterial color="#f1f1ee" roughness={0.65} />
+      </mesh>
+      <mesh position={[0, h - 0.17, d / 2 - 0.055]}>
+        <planeGeometry args={[w * 0.84, 0.13]} />
+        <meshStandardMaterial map={caption} roughness={0.5} />
+      </mesh>
+      {/* a warm line under the top, as a lit display table has */}
+      <mesh position={[0, h - top - 0.012, d / 2 - 0.058]}>
+        <planeGeometry args={[w - 0.16, 0.016]} />
+        <meshBasicMaterial color="#ffd9a0" toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+/** A crowd of little figures, the way a scale model shows people. */
+function Figures({ n, w: spanW, d: spanD, colors, scale = 1 }: {
+  n: number; w: number; d: number; colors: string[]; scale?: number;
+}) {
+  return (
+    <group>
+      {Array.from({ length: n }, (_, i) => {
+        const cols = Math.ceil(Math.sqrt(n * (spanW / Math.max(spanD, 0.01))));
+        const row = Math.floor(i / cols), col = i % cols;
+        const rows = Math.ceil(n / cols);
+        const x = spanW * ((col + 0.5) / cols - 0.5);
+        const z = spanD * ((row + 0.5) / Math.max(rows, 1) - 0.5);
+        const c = colors[(i * 7) % colors.length];
+        return (
+          <group key={i} position={[x, 0, z]} scale={scale}>
+            <mesh position={[0, 0.016, 0]}>
+              <cylinderGeometry args={[0.008, 0.009, 0.032, 7]} />
+              <meshStandardMaterial color={c} roughness={0.8} />
+            </mesh>
+            <mesh position={[0, 0.039, 0]}>
+              <sphereGeometry args={[0.009, 8, 6]} />
+              <meshStandardMaterial color="#e0ac7e" roughness={0.8} />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+const TIERS = [
+  { t: '135 MASTER TRAINERS', c: '#8a3fd1', w: 0.34, n: 6 },
+  { t: '543 NODAL FACULTY', c: '#17a398', w: 0.46, n: 10 },
+  { t: '36,800 COLLEGE INTERNS', c: '#1e9e4a', w: 0.58, n: 14 },
+  { t: '4,32,000+ STUDENTS REACHED', c: '#e8721c', w: 0.70, n: 18 },
+  { t: 'FINAL TARGET  10 LAKH', c: '#f0b400', w: 0.82, n: 0 },
+];
+
+const STACK = [
+  ['Education Department', '#1769d6'], ['Higher Education Dept.', '#7b3fd1'],
+  ['Collegiate & Technical Edn.', '#f0b400'], ['All State Universities', '#17a398'],
+  ['Degree & Polytechnic Colleges', '#1e9e4a'], ['Directorate of School Edn.', '#e8721c'],
+  ['SCERT', '#e0318b'], ['Government Schools', '#d93025'],
+] as const;
+
+/** Simple sectioned building: floor slabs with figures between them. */
+function MiniBuilding({ w, d, floors, wall, band, people }: {
+  w: number; d: number; floors: number; wall: string; band: string; people: string[];
+}) {
+  const fh = 0.075;
+  return (
+    <group>
+      {Array.from({ length: floors }, (_, f) => (
+        <group key={f} position={[0, f * fh, 0]}>
+          <mesh position={[0, 0.004, 0]} receiveShadow>
+            <boxGeometry args={[w, 0.008, d]} />
+            <meshStandardMaterial color="#f2f2ef" roughness={0.8} />
+          </mesh>
+          <mesh position={[0, fh / 2, -d / 2 + 0.004]}>
+            <boxGeometry args={[w, fh, 0.008]} />
+            <meshStandardMaterial color={wall} roughness={0.85} />
+          </mesh>
+          <group position={[0, 0.008, 0.01]}>
+            <Figures n={10} w={w - 0.06} d={d - 0.08} colors={people} scale={0.85} />
+          </group>
+        </group>
+      ))}
+      <mesh position={[0, floors * fh + 0.008, 0]}>
+        <boxGeometry args={[w + 0.02, 0.016, d + 0.02]} />
+        <meshStandardMaterial color={band} roughness={0.7} />
+      </mesh>
+      {/* corner posts */}
+      {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
+        <mesh key={i} position={[sx * w / 2, (floors * fh) / 2, sz * d / 2]}>
+          <boxGeometry args={[0.012, floors * fh, 0.012]} />
+          <meshStandardMaterial color="#1b2a4a" roughness={0.6} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function MentorshipModel({ header, tiers, stack, banner }: {
+  header: THREE.Texture; tiers: THREE.Texture[];
+  stack: THREE.Texture[]; banner: THREE.Texture;
+}) {
+  const PEOPLE = ['#d93025', '#1769d6', '#f0b400', '#1e9e4a', '#7b3fd1', '#e8721c'];
+  return (
+    <group>
+      {/* base board */}
+      <mesh position={[0, 0.015, 0]} receiveShadow castShadow>
+        <boxGeometry args={[1.6, 0.03, 0.74]} />
+        <meshStandardMaterial color="#11224a" roughness={0.7} />
+      </mesh>
+      <mesh position={[0, 0.032, 0]} receiveShadow>
+        <boxGeometry args={[1.56, 0.006, 0.70]} />
+        <meshStandardMaterial color="#cfe4d2" roughness={0.9} />
+      </mesh>
+      {/* bottom banner across the front edge */}
+      <mesh position={[0, 0.018, 0.372]}>
+        <planeGeometry args={[1.5, 0.034]} />
+        <meshStandardMaterial map={banner} roughness={0.5} />
+      </mesh>
+
+      {/* left: degree / polytechnic college */}
+      <group position={[-0.56, 0.035, -0.04]}>
+        <MiniBuilding w={0.42} d={0.26} floors={2} wall="#e8b9c6" band="#e0318b"
+          people={PEOPLE} />
+      </group>
+      {/* right: government school */}
+      <group position={[0.58, 0.035, -0.02]}>
+        <MiniBuilding w={0.40} d={0.24} floors={1} wall="#d9c4a0" band="#e8721c"
+          people={PEOPLE} />
+      </group>
+
+      {/* centre: the cascade, widest at the bottom */}
+      <group position={[0, 0.035, 0.02]}>
+        {TIERS.map((t, i) => {
+          const y = (TIERS.length - 1 - i) * 0.042;
+          const z = -0.16 + i * 0.062;
+          return (
+            <group key={t.t} position={[0, y, z]}>
+              <mesh position={[0, 0.018, 0]} castShadow receiveShadow>
+                <boxGeometry args={[t.w, 0.036, 0.058]} />
+                <meshStandardMaterial color="#f4f4f2" roughness={0.7} />
+              </mesh>
+              <mesh position={[0, 0.03, 0.03]}>
+                <planeGeometry args={[t.w * 0.96, 0.016]} />
+                <meshStandardMaterial map={tiers[i]} roughness={0.5} />
+              </mesh>
+              {t.n > 0 && (
+                <group position={[0, 0.036, -0.004]}>
+                  <Figures n={t.n} w={t.w - 0.05} d={0.03} colors={PEOPLE} scale={0.8} />
+                </group>
+              )}
+            </group>
+          );
+        })}
+      </group>
+
+      {/* the header board on two posts */}
+      <group position={[-0.12, 0.035, -0.1]}>
+        {[-0.3, 0.3].map((x) => (
+          <mesh key={x} position={[x, 0.17, 0]}>
+            <boxGeometry args={[0.014, 0.34, 0.014]} />
+            <meshStandardMaterial color="#11224a" roughness={0.6} />
+          </mesh>
+        ))}
+        <mesh position={[0, 0.4, 0]} castShadow>
+          <boxGeometry args={[0.78, 0.3, 0.012]} />
+          <meshStandardMaterial map={header} roughness={0.5} />
+        </mesh>
+      </group>
+
+      {/* right: the institution stack, bottom to top */}
+      <group position={[0.58, 0.035, -0.02]}>
+        <mesh position={[0, 0.2, -0.02]}>
+          <boxGeometry args={[0.012, 0.4, 0.012]} />
+          <meshStandardMaterial color="#11224a" roughness={0.6} />
+        </mesh>
+        {STACK.map(([, c], i) => (
+          <group key={i} position={[0, 0.07 + (STACK.length - 1 - i) * 0.047, 0]}>
+            <mesh castShadow>
+              <boxGeometry args={[0.34, 0.038, 0.03]} />
+              <meshStandardMaterial color={c} roughness={0.6} />
+            </mesh>
+            <mesh position={[0, 0, 0.016]}>
+              <planeGeometry args={[0.32, 0.03]} />
+              <meshStandardMaterial map={stack[i]} roughness={0.5} />
+            </mesh>
+          </group>
+        ))}
+      </group>
+
+      {/* the seven-step chip row in front of the cascade */}
+      {Array.from({ length: 7 }, (_, i) => (
+        <mesh key={i} position={[-0.33 + i * 0.11, 0.05, 0.25]} castShadow>
+          <boxGeometry args={[0.095, 0.03, 0.07]} />
+          <meshStandardMaterial
+            color={['#e0318b', '#1769d6', '#e8721c', '#17a398', '#1e9e4a', '#f0b400', '#d93025'][i]}
+            roughness={0.6} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+const AEDP_STATIONS: { x: number; z: number; r: number; c: string; kind: string }[] = [
+  { x: -0.60, z: -0.04, r: 0.115, c: '#1b8f93', kind: 'books' },
+  { x: -0.26, z: 0.06, r: 0.115, c: '#e07b24', kind: 'people' },
+  { x: 0.05, z: -0.08, r: 0.105, c: '#c0392b', kind: 'workshop' },
+  { x: 0.33, z: 0.04, r: 0.105, c: '#1f6fd0', kind: 'gear' },
+  { x: 0.62, z: -0.02, r: 0.115, c: '#1e9e4a', kind: 'tower' },
+];
+
+function AedpModel({ band, cards }: { band: THREE.Texture; cards: THREE.Texture[] }) {
+  const PEOPLE = ['#1f6fd0', '#e07b24', '#1e9e4a', '#c0392b', '#f0b400'];
+  const tree = (x: number, z: number, h: number) => (
+    <group key={`${x}${z}`} position={[x, 0.036, z]}>
+      <mesh position={[0, h / 2, 0]} castShadow>
+        <coneGeometry args={[h * 0.4, h, 8]} />
+        <meshStandardMaterial color="#2f7d3f" roughness={0.9} />
+      </mesh>
+    </group>
+  );
+  return (
+    <group>
+      {/* white base with the titled edge band */}
+      <mesh position={[0, 0.018, 0]} receiveShadow castShadow>
+        <boxGeometry args={[1.6, 0.036, 0.74]} />
+        <meshStandardMaterial color="#f7f7f5" roughness={0.6} />
+      </mesh>
+      <mesh position={[0, 0.016, 0.371]}>
+        <planeGeometry args={[1.56, 0.03]} />
+        <meshStandardMaterial map={band} roughness={0.5} />
+      </mesh>
+
+      {AEDP_STATIONS.map((st, i) => (
+        <group key={i} position={[st.x, 0.036, st.z]}>
+          <mesh position={[0, 0.012, 0]} castShadow receiveShadow>
+            <cylinderGeometry args={[st.r, st.r, 0.024, 28]} />
+            <meshStandardMaterial color={st.c} roughness={0.7} />
+          </mesh>
+
+          {st.kind === 'books' && Array.from({ length: 8 }, (_, b) => (
+            <mesh key={b} position={[-0.06 + (b % 4) * 0.04, 0.038, -0.03 + Math.floor(b / 4) * 0.05]}
+              rotation={[0, 0.2, 0]} castShadow>
+              <boxGeometry args={[0.032, 0.02, 0.042]} />
+              <meshStandardMaterial color={b % 2 ? '#e07b24' : '#1b8f93'} roughness={0.8} />
+            </mesh>
+          ))}
+          {st.kind === 'people' && (
+            <group position={[0, 0.024, 0]}>
+              <Figures n={12} w={0.16} d={0.12} colors={PEOPLE} />
+            </group>
+          )}
+          {st.kind === 'workshop' && (
+            <group position={[0, 0.024, 0]}>
+              <mesh position={[0, 0.04, -0.02]} castShadow>
+                <boxGeometry args={[0.13, 0.08, 0.09]} />
+                <meshStandardMaterial color="#c0392b" roughness={0.7} />
+              </mesh>
+              <mesh position={[0.03, 0.025, 0.04]} rotation={[0, 0.4, 0]} castShadow>
+                <boxGeometry args={[0.09, 0.05, 0.05]} />
+                <meshStandardMaterial color="#e8c84a" roughness={0.6} />
+              </mesh>
+            </group>
+          )}
+          {st.kind === 'gear' && (
+            <group position={[0, 0.03, 0]}>
+              <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+                <cylinderGeometry args={[0.05, 0.05, 0.014, 12]} />
+                <meshStandardMaterial color="#e8c84a" metalness={0.5} roughness={0.4} />
+              </mesh>
+              <Figures n={6} w={0.14} d={0.08} colors={PEOPLE} />
+            </group>
+          )}
+          {st.kind === 'tower' && (
+            <group position={[0, 0.024, 0]}>
+              <mesh position={[0, 0.11, -0.01]} castShadow>
+                <cylinderGeometry args={[0.022, 0.028, 0.22, 10]} />
+                <meshStandardMaterial color="#2f7d3f" roughness={0.7} />
+              </mesh>
+              <mesh position={[0, 0.235, -0.01]} castShadow>
+                <boxGeometry args={[0.07, 0.012, 0.07]} />
+                <meshStandardMaterial color="#1b2a4a" roughness={0.6} />
+              </mesh>
+              <Figures n={8} w={0.16} d={0.1} colors={PEOPLE} />
+            </group>
+          )}
+
+          {/* numbered caption card on a stalk */}
+          <mesh position={[0, 0.17, 0]}>
+            <boxGeometry args={[0.004, 0.13, 0.004]} />
+            <meshStandardMaterial color="#9aa3aa" />
+          </mesh>
+          <mesh position={[0, 0.25, 0]} castShadow>
+            <planeGeometry args={[0.2, 0.05]} />
+            <meshStandardMaterial map={cards[i]} roughness={0.5} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* the college building at the back */}
+      <group position={[-0.18, 0.036, -0.25]}>
+        <mesh position={[0, 0.05, 0]} castShadow>
+          <boxGeometry args={[0.3, 0.1, 0.14]} />
+          <meshStandardMaterial color="#f0ece2" roughness={0.8} />
+        </mesh>
+        <mesh position={[0, 0.112, 0]} castShadow>
+          <boxGeometry args={[0.32, 0.026, 0.16]} />
+          <meshStandardMaterial color="#b4472e" roughness={0.8} />
+        </mesh>
+        <mesh position={[0, 0.138, 0]}>
+          <sphereGeometry args={[0.028, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color="#e8e4d8" roughness={0.7} />
+        </mesh>
+      </group>
+
+      {[[-0.72, 0.26, 0.09], [0.0, 0.3, 0.075], [0.45, 0.28, 0.08], [0.74, 0.2, 0.07],
+        [-0.42, 0.3, 0.07]].map(([x, z, h]) => tree(x, z, h))}
+    </group>
+  );
+}
+
 function DisplaySteps({ labels }: { labels: THREE.Texture[] }) {
   return (
     <group>
@@ -1338,6 +1676,17 @@ function Stall({
     () => ({ girl: makeStandeeTexture('girl'), boy: makeStandeeTexture('boy') }), []);
   const backdropTex = useMemo(() => makePhotoBackdrop(name), [name]);
   const plinthTex = useMemo(() => makePlinthTexture(MCASE_TITLE), []);
+  const modelTex = useMemo(() => ({
+    tableA: makeBandTexture(MODEL_TITLES.mentorship, '#11224a', '#ffc425', 1.5, 0.13),
+    tableB: makeBandTexture('SKILLING TELANGANA · AEDP', '#12463f', '#ffffff', 1.5, 0.13),
+    header: makeMentorshipHeader(),
+    banner: makeBandTexture(MODEL_TITLES.mentorshipSub, '#1e9e4a', '#ffffff', 1.5, 0.034),
+    tiers: TIERS.map((t) => makeTierTexture(t.t, t.c)),
+    stack: STACK.map(([t, c]) => makeTierTexture(t, c)),
+    aedpBand: makeBandTexture(MODEL_TITLES.aedp, '#12463f', '#ffffff', 1.56, 0.03),
+    cards: ['1 Curriculum revision', '2 New-age courses', '3 Faculty capacity',
+      '4 Industry linkages', '5 Apprenticeship'].map((t) => makeTierTexture(t, '#ffffff', '#15306d')),
+  }), []);
 
   const { width: W, depth: D } = cfg;
 
@@ -1388,6 +1737,23 @@ function Stall({
             <PhotoBooth id={`photo:${p.id}`} fallback={backdropTex} ctx={ctx} />
           )}
           {p.type === 'modelcase' && <ModelCase caption={plinthTex} />}
+          {p.type === 'modelMentorship' && (
+            <group>
+              <DisplayTable caption={modelTex.tableA} />
+              <group position={[0, DTABLE.h, 0]}>
+                <MentorshipModel header={modelTex.header} tiers={modelTex.tiers}
+                  stack={modelTex.stack} banner={modelTex.banner} />
+              </group>
+            </group>
+          )}
+          {p.type === 'modelAedp' && (
+            <group>
+              <DisplayTable caption={modelTex.tableB} />
+              <group position={[0, DTABLE.h, 0]}>
+                <AedpModel band={modelTex.aedpBand} cards={modelTex.cards} />
+              </group>
+            </group>
+          )}
           {p.type === 'bin' && <Bin />}
         </Draggable>
       ))}

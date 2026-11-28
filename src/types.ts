@@ -2,7 +2,8 @@ export type WallId = 'back' | 'left' | 'right';
 export type EdgeId = 'front' | 'left' | 'right';
 export type ItemType =
   'counter' | 'table' | 'cabinet' | 'kiosk' | 'bin' | 'steps'
-  | 'glasscase' | 'standeeGirl' | 'standeeBoy' | 'photobooth' | 'modelcase';
+  | 'glasscase' | 'standeeGirl' | 'standeeBoy' | 'photobooth' | 'modelcase'
+  | 'modelMentorship' | 'modelAedp';
 
 /** 'a' and 'b' share one back wall; 'c' stands diagonally across the aisle. */
 export type StallId = 'a' | 'b' | 'c';

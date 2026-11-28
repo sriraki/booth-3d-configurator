@@ -21,7 +21,7 @@ import * as store from './storage';
  *  sides, the furniture kit, seating. A session saved against an older design
  *  would otherwise pin defaults the design has since moved on from, so it
  *  starts from the new one. Artwork and screen media are kept either way. */
-const CFG_REV = 9;
+const CFG_REV = 10;
 
 const INITIAL: Config = {
   width: 6, depth: 3, openSides: 2, mirror: true,
@@ -45,7 +45,18 @@ const INITIAL: Config = {
         { type: 'bin', x: 2.75, z: -1.10 },
       ],
     },
-    b: { table: 0 },             // CCE: no coffee table, otherwise derived
+    // CCE carries the two scale models, one per display table.
+    b: {
+      tvs: 1, tvSizeIdx: LED_8X6_IDX,
+      layout: [
+        { type: 'modelMentorship', x: -1.45, z: -0.75 },
+        { type: 'modelAedp', x: 0.65, z: -0.75 },
+        { type: 'counter', x: 2.25, z: 0.60, rotY: -0.45 },   // helpdesk, open corner
+        { type: 'kiosk', x: 2.50, z: -0.90, rotY: 0.6 },
+        { type: 'cabinet', x: -2.50, z: 0.60 },
+        { type: 'bin', x: 2.80, z: 1.15 },
+      ],
+    },
     c: {
       tvs: 1, tvSizeIdx: LED_8X6_IDX,
       layout: [
@@ -89,29 +100,39 @@ function CameraRig({ view, cfg, stall, controls }: {
 }) {
   const { camera, size } = useThree();
   useEffect(() => {
-    // An "angle:<name>" view frames the stall being edited from that angle.
-    if (view.startsWith('angle:')) {
-      const a = view.slice(6) as StallAngle;
-      const { pos, target, overhead } = stallCamera(cfg, stall, a);
-      camera.up.set(0, overhead ? 0 : 1, overhead ? -1 : 0);
-      camera.position.set(pos[0], pos[1], pos[2]);
-      if (controls.current) {
-        controls.current.target.set(target[0], target[1], target[2]);
-        controls.current.update();
-      }
-      return;
-    }
     const W = cfg.width, D = cfg.depth;
     const cam = camera as THREE.PerspectiveCamera;
     const vFov = THREE.MathUtils.degToRad(cam.fov);
     const hFov = 2 * Math.atan(Math.tan(vFov / 2) * cam.aspect);
 
-    // Distance at which a w x h subject fits BOTH axes of this canvas.
-    // The centre stage is often portrait, so the horizontal fov is the binding
-    // constraint and a width-agnostic distance crops wide stalls.
+    // Distance at which a w x h subject fits BOTH axes of this canvas. The
+    // stage is often portrait, so the horizontal fov is the binding constraint
+    // and a width-agnostic distance crops wide stalls.
     const fit = (w: number, h: number) =>
       Math.max((w / 2) / Math.tan(hFov / 2), (h / 2) / Math.tan(vFov / 2)) * 1.18;
 
+    // An "angle:<name>" view frames the stall being edited from that angle.
+    if (view.startsWith('angle:')) {
+      const a = view.slice(6) as StallAngle;
+      const shot = stallCamera(cfg, stall, a);
+      // Distance comes from the canvas, not a constant: a fixed stand-off
+      // crops the stall on a narrow window, and the whole booth has to be in
+      // frame for these to be of any use as presentation images.
+      const d = fit(shot.subject[0], shot.subject[1]);
+      const len = Math.hypot(...shot.dir) || 1;
+      const pos: [number, number, number] = shot.fixed ?? [
+        shot.target[0] + (shot.dir[0] / len) * d,
+        Math.max(0.6, shot.target[1] + (shot.dir[1] / len) * d),
+        shot.target[2] + (shot.dir[2] / len) * d,
+      ];
+      camera.up.set(0, shot.overhead ? 0 : 1, shot.overhead ? -1 : 0);
+      camera.position.set(pos[0], pos[1], pos[2]);
+      if (controls.current) {
+        controls.current.target.set(shot.target[0], shot.target[1], shot.target[2]);
+        controls.current.update();
+      }
+      return;
+    }
     // Elevations look straight into one stall; hero and plan frame the whole
     // arrangement, which with three stalls is much wider than any one of them.
     const b = arrangementBounds(cfg);

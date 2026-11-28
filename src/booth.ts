@@ -90,27 +90,57 @@ export const STALL_ANGLES = [
 ] as const;
 export type StallAngle = typeof STALL_ANGLES[number];
 
-export function stallCamera(cfg: Config, stall: StallId, angle: StallAngle) {
+export interface StallShot {
+  /** Offset direction from the target; the rig scales it to fit. */
+  dir: [number, number, number];
+  target: [number, number, number];
+  /** What has to be in frame, metres, so the whole stall is covered. */
+  subject: [number, number];
+  overhead: boolean;
+  /** Fixed position instead of a fitted one, for the inside-the-stall view. */
+  fixed?: [number, number, number];
+}
+
+export function stallCamera(cfg: Config, stall: StallId, angle: StallAngle): StallShot {
   const { width: W, depth: D } = cfg;
   const pose = stallPose(cfg, stall);
   const sc = stallCfg(cfg, stall);
   const open = sc.mirror ? -1 : 1;      // local x of the open flank
-  const reach = Math.max(W, D);
+  const diag = Math.hypot(W, D);
+  const tall = TOTAL_H + 0.9;
 
-  const local: Record<StallAngle, { p: [number, number, number]; t: [number, number, number] }> = {
-    frontage:     { p: [0, 1.95, D / 2 + reach * 1.05], t: [0, 1.25, 0] },
-    'open side':  { p: [open * (W / 2 + reach * 0.75), 1.95, 0], t: [0, 1.25, 0] },
-    'open corner': { p: [open * (W * 0.62), 2.45, D / 2 + reach * 0.72], t: [0, 1.15, -D * 0.1] },
-    'far corner': { p: [-open * (W * 0.62), 2.45, D / 2 + reach * 0.72], t: [0, 1.15, -D * 0.1] },
-    interior:     { p: [open * (W * 0.3), 1.62, D / 2 - 0.5], t: [-open * (W * 0.3), 1.25, -D / 2] },
-    plan:         { p: [0, reach * 1.65, 0.01], t: [0, 0, 0] },
+  const local: Record<StallAngle, Omit<StallShot, 'overhead'>> = {
+    frontage: { dir: [0, 0.34, 1], target: [0, 1.2, 0], subject: [W + 0.9, tall] },
+    'open side': { dir: [open, 0.34, 0], target: [0, 1.2, 0], subject: [D + 0.9, tall] },
+    'open corner': {
+      dir: [open * 0.74, 0.46, 0.92], target: [0, 1.1, -D * 0.08],
+      subject: [diag * 0.98, tall + 0.3],
+    },
+    'far corner': {
+      dir: [-open * 0.74, 0.46, 0.92], target: [0, 1.1, -D * 0.08],
+      subject: [diag * 0.98, tall + 0.3],
+    },
+    interior: {
+      dir: [0, 0, 1], target: [-open * (W * 0.32), 1.25, -D / 2],
+      subject: [W, tall],
+      fixed: [open * (W * 0.3), 1.62, D / 2 - 0.5],
+    },
+    plan: { dir: [0, 1, 0.012], target: [0, 0, 0], subject: [W + 1.1, D + 1.1] },
   };
 
   const toWorld = ([x, y, z]: [number, number, number]): [number, number, number] =>
     pose.flip ? [pose.x - x, y, pose.z - z] : [pose.x + x, y, pose.z + z];
+  const rotOnly = ([x, y, z]: [number, number, number]): [number, number, number] =>
+    pose.flip ? [-x, y, -z] : [x, y, z];
 
   const a = local[angle];
-  return { pos: toWorld(a.p), target: toWorld(a.t), overhead: angle === 'plan' };
+  return {
+    dir: rotOnly(a.dir),
+    target: toWorld(a.target),
+    subject: a.subject,
+    overhead: angle === 'plan',
+    fixed: a.fixed ? toWorld(a.fixed) : undefined,
+  };
 }
 
 /** Footprint of the whole arrangement in world coordinates. */
@@ -167,7 +197,8 @@ export function edgePoint(e: EdgeId, t: number, W: number, D: number) {
 
 export const ITEM_TYPES: ItemType[] = [
   'counter', 'table', 'cabinet', 'kiosk', 'steps',
-  'glasscase', 'standeeGirl', 'standeeBoy', 'photobooth', 'modelcase', 'bin',
+  'glasscase', 'standeeGirl', 'standeeBoy', 'photobooth', 'modelcase',
+  'modelMentorship', 'modelAedp', 'bin',
 ];
 
 export const ITEM_LABEL: Record<ItemType, string> = {
@@ -181,6 +212,8 @@ export const ITEM_LABEL: Record<ItemType, string> = {
   standeeBoy: 'Standee — boy in uniform',
   photobooth: 'Photo booth',
   modelcase: 'Model display vitrine',
+  modelMentorship: 'Model — Anna–Akka Mentorship',
+  modelAedp: 'Model — Skilling Telangana AEDP',
   bin: 'Dustbin',
 };
 
@@ -194,7 +227,7 @@ export function defaultCounts(area: number): Record<ItemType, number> & {
     kiosk: area <= 12 ? 0 : area <= 28 ? 1 : 2,
     // Stand features, switched on per stall rather than scaled by area.
     steps: 0, glasscase: 0, standeeGirl: 0, standeeBoy: 0,
-    photobooth: 0, modelcase: 0,
+    photobooth: 0, modelcase: 0, modelMentorship: 0, modelAedp: 0,
     bin: 1,
     spotlights: Math.max(3, Math.ceil(area / 3)),
     tvs: area <= 12 ? 1 : area <= 20 ? 1 : area <= 28 ? 2 : 3,
@@ -255,6 +288,13 @@ export function anchorFor(type: ItemType, i: number, cfg: Config) {
       return { x: clampX(wallSide * (W / 2 - 1.3 - i * 2.4)), z: clampZ(-D / 2 + 0.25), rotY: 0 };
     case 'modelcase':
       return { x: clampX(i * 1.5), z: clampZ(0), rotY: 0 };
+    case 'modelMentorship':
+    case 'modelAedp':
+      return {
+        x: clampX((type === 'modelMentorship' ? -1 : 1) * 1.05 + i * 2.1),
+        z: clampZ(-D / 2 + 0.75),
+        rotY: 0,
+      };
     case 'bin':
     default:
       // Back of the screen-side flank, out of the helpdesk's way.

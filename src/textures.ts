@@ -362,3 +362,66 @@ export function makePlinthTexture(title: string) {
     ctx.fillText(title, w / 2, h / 2);
   });
 }
+
+/** A titled band: the edge of a model base, or a banner across a model. */
+export function makeBandTexture(
+  title: string, bg = '#12304f', fg = '#ffffff', wM = 1.6, hM = 0.12,
+) {
+  return canvasTexture(wM, hM, (ctx, w, h) => {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = fg;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const size = fitText(ctx, title, w * 0.94, h * 0.62);
+    ctx.font = `700 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText(title, w / 2, h / 2);
+  });
+}
+
+/** The Anna-Akka header board: title, strapline and tagline on navy. */
+export function makeMentorshipHeader() {
+  return canvasTexture(0.78, 0.3, (ctx, w, h) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#11224a';
+    ctx.fillRect(h * 0.06, h * 0.06, w - h * 0.12, h - h * 0.12);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.fillStyle = '#ffc425';
+    let size = fitText(ctx, 'ANNA–AKKA MENTORSHIP', w * 0.86, h * 0.26);
+    ctx.font = `800 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('ANNA–AKKA MENTORSHIP', w / 2, h * 0.3);
+
+    ctx.fillStyle = '#ffffff';
+    size = fitText(ctx, 'Teaching Internship Programme on AI & Digital Learning',
+      w * 0.86, h * 0.1);
+    ctx.font = `600 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('Teaching Internship Programme on AI & Digital Learning', w / 2, h * 0.48);
+
+    ctx.fillStyle = '#35c6f4';
+    size = fitText(ctx, 'INTEGRATING TWO GENERATIONS', w * 0.8, h * 0.17);
+    ctx.font = `800 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('INTEGRATING TWO GENERATIONS', w / 2, h * 0.66);
+
+    ctx.fillStyle = '#ffffff';
+    size = fitText(ctx, 'Learn Together. Grow Together. Lead Tomorrow.', w * 0.78, h * 0.1);
+    ctx.font = `600 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText('Learn Together. Grow Together. Lead Tomorrow.', w / 2, h * 0.84);
+  });
+}
+
+/** One of the stepped tiers, or one plate of the institution stack. */
+export function makeTierTexture(text: string, bg: string, fg = '#ffffff') {
+  return canvasTexture(0.6, 0.075, (ctx, w, h) => {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = fg;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const size = fitText(ctx, text, w * 0.94, h * 0.7);
+    ctx.font = `800 ${size}px Helvetica, Arial, sans-serif`;
+    ctx.fillText(text, w / 2, h / 2);
+  });
+}
